@@ -1,6 +1,15 @@
 <script lang="ts">
   import { player } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
+  import { favorites } from '$lib/stores/favorites';
+  import { seek, playNext, playPrev } from '$lib/playback';
+  import PlaylistModal from '$lib/components/PlaylistModal.svelte';
+
+  function togglePlay() { player.setPlaying(!$player.isPlaying); }
+  function fmtTime(ms: number) {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
 
   let showLyrics = $state(false);
   let lyrics = $state<{ time: number; text: string }[]>([]);
@@ -8,6 +17,11 @@
   let lyricsAvailable = $state<boolean | null>(null);
   let activeLine = $state(-1);
   let lyricsContainer: HTMLElement | undefined = $state();
+
+  const isFav = $derived(
+    !!$player.currentTrack && $favorites.some(t => t.id === $player.currentTrack!.id)
+  );
+  let showPlaylistModal = $state(false);
 
   function parseLRC(lrc: string): { time: number; text: string }[] {
     return lrc.split('\n')
@@ -93,197 +107,360 @@
       loadLyrics();
     }
   }
+
+  // El waveform hace de línea de tiempo: click para saltar a esa posición.
+  function seekFromWave(e: MouseEvent) {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    seek((e.clientX - rect.left) / rect.width);
+  }
+
+  // ── Waveform decorativo (barras deterministas por pista) ──
+  const BAR_COUNT = 64;
+  function hashStr(s: string): number {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return h;
+  }
+  const bars = $derived.by(() => {
+    const seed = hashStr($player.currentTrack?.id ?? 'icaria') * 0.001;
+    return Array.from({ length: BAR_COUNT }, (_, i) => {
+      const v = (Math.sin(seed + i * 0.6) + Math.sin(seed * 1.7 + i * 0.21)) / 2;
+      return 0.22 + (v * 0.5 + 0.5) * 0.78; // 0.22 .. 1.0
+    });
+  });
+  // Índice de la barra alcanzada por el progreso (para colorear "reproducido").
+  const playedBar = $derived(Math.round(($player.progress || 0) * BAR_COUNT));
+
+  const totalMs = $derived(
+    $player.currentTrack?.durationMs ??
+    ($player.progress > 0 ? $player.currentMs / $player.progress : 0)
+  );
+  const remainingMs = $derived(Math.max(0, totalMs - $player.currentMs));
 </script>
 
 <div class="now-playing">
-  <!-- Fondo borroso con la portada -->
+  <!-- Halo suave con la portada, teñido con el fondo del tema -->
   {#if $player.currentTrack?.thumbnail}
     <div class="bg-art" style="background-image:url({hqThumb($player.currentTrack.thumbnail)})"></div>
   {/if}
   <div class="bg-overlay"></div>
-  <div class="bg-dots"></div>
 
   <div class="np-layout" class:with-lyrics={showLyrics}>
-    <!-- Panel izquierdo: arte + info -->
-    <div class="art-panel">
+    <div class="np-inner">
+      <!-- Barra superior -->
       <div class="top-bar">
-        <button class="back-btn" onclick={() => nav.goBackFromNowPlaying()}>
-          ← volver
+        <button class="round-btn" onclick={() => nav.goBackFromNowPlaying()} title="Volver" aria-label="Volver">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"/>
+          </svg>
         </button>
-        <button
-          class="lyrics-toggle {showLyrics ? 'active' : ''}"
-          onclick={toggleLyrics}
-          title="Letra"
-        >
-          LETRA {lyricsLoading ? '···' : ''}
-        </button>
+        <div class="top-actions">
+          <button
+            class="autoplay-switch"
+            class:on={$player.autoplay}
+            onclick={() => player.toggleAutoplay()}
+            title={$player.autoplay ? 'Autoplay activado: al acabar la cola sigue música relacionada' : 'Autoplay desactivado: se detiene al acabar la cola'}
+            role="switch"
+            aria-checked={$player.autoplay}
+            aria-label="Autoplay"
+          >
+            <span class="sw-label">AUTOPLAY</span>
+            <span class="sw-track"><span class="sw-knob"></span></span>
+          </button>
+          <button class="lyrics-toggle" class:active={showLyrics} onclick={toggleLyrics}>
+            LETRA {lyricsLoading ? '···' : ''}
+          </button>
+        </div>
       </div>
 
-      <div class="art-wrap">
-        {#if $player.currentTrack?.thumbnail}
-          <img
-            class="art"
-            src={hqThumb($player.currentTrack.thumbnail)}
-            alt=""
-            onerror={(e) => { (e.target as HTMLImageElement).src = $player.currentTrack!.thumbnail!; }}
-          />
-        {:else}
-          <div class="art art-empty">
-            <div class="empty-dots"></div>
-            <span class="empty-g">G</span>
+      <div class="np-main">
+        <!-- Portada -->
+        <div class="art-col">
+          <div class="art-wrap">
+            {#if $player.currentTrack?.thumbnail}
+              <img
+                class="art"
+                src={hqThumb($player.currentTrack.thumbnail)}
+                alt=""
+                onerror={(e) => { (e.target as HTMLImageElement).src = $player.currentTrack!.thumbnail!; }}
+              />
+            {:else}
+              <div class="art art-empty">
+                <div class="empty-dots"></div>
+                <span class="empty-g">I</span>
+              </div>
+            {/if}
           </div>
-        {/if}
-      </div>
+        </div>
 
-      <div class="track-info">
-        <p class="track-title">{$player.currentTrack?.title ?? '─── sin canción ───'}</p>
-        <p class="track-artist">{$player.currentTrack?.artist ?? ''}</p>
-        {#if $player.currentTrack?.album}
-          <p class="track-album">{$player.currentTrack.album}</p>
-        {/if}
-      </div>
-    </div>
-
-    <!-- Panel derecho: letra -->
-    {#if showLyrics}
-      <div class="lyrics-panel" bind:this={lyricsContainer}>
-        <p class="lyrics-title">LETRA</p>
-        {#if lyricsLoading}
-          <p class="lyrics-status">Buscando letra···</p>
-        {:else if lyricsAvailable === false}
-          <p class="lyrics-status">Letra no disponible para esta canción.</p>
-        {:else}
-          <div class="lyrics-lines">
-            {#each lyrics as line, i}
-              {#if line.text}
-                <p
-                  class="lyric-line"
-                  class:active={i === activeLine}
-                  class:past={i < activeLine}
-                  data-active={i === activeLine}
-                >{line.text}</p>
+        <!-- Info / letra -->
+        <div class="info-col">
+          {#if showLyrics}
+            <div class="lyrics-panel" bind:this={lyricsContainer}>
+              {#if lyricsLoading}
+                <p class="lyrics-status">Buscando letra···</p>
+              {:else if lyricsAvailable === false}
+                <p class="lyrics-status">Letra no disponible para esta canción.</p>
               {:else}
-                <p class="lyric-break"></p>
+                <div class="lyrics-lines">
+                  {#each lyrics as line, i}
+                    {#if line.text}
+                      <p
+                        class="lyric-line"
+                        class:active={i === activeLine}
+                        class:past={i < activeLine}
+                        data-active={i === activeLine}
+                      >{line.text}</p>
+                    {:else}
+                      <p class="lyric-break"></p>
+                    {/if}
+                  {/each}
+                </div>
               {/if}
-            {/each}
-          </div>
-        {/if}
+            </div>
+          {:else}
+            <div class="badge">
+              EN REPRODUCCIÓN
+              <span class="badge-eq" class:playing={$player.isPlaying}>
+                <i></i><i></i><i></i>
+              </span>
+            </div>
+
+            <h1 class="track-title">{$player.currentTrack?.title ?? '─── sin canción ───'}</h1>
+            <p class="track-artist">{$player.currentTrack?.artist ?? ''}</p>
+            {#if $player.currentTrack?.album}
+              <p class="track-album">{$player.currentTrack.album}</p>
+            {/if}
+
+            <div class="actions">
+              <button
+                class="action-btn primary"
+                class:liked={isFav}
+                onclick={() => { if ($player.currentTrack) favorites.toggle($player.currentTrack); }}
+                title={isFav ? 'Quitar de favoritos' : 'Añadir a favoritos'}
+                aria-label="Favorito" aria-pressed={isFav}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
+                </svg>
+              </button>
+              <button
+                class="action-btn"
+                onclick={() => { if ($player.currentTrack) showPlaylistModal = true; }}
+                title="Añadir a playlist" aria-label="Añadir a playlist"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                  <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+                </svg>
+              </button>
+            </div>
+
+            <!-- Waveform: también hace de línea de tiempo (click para saltar) -->
+            <div
+              class="wave"
+              class:playing={$player.isPlaying}
+              role="slider"
+              tabindex="0"
+              aria-label="Progreso"
+              aria-valuemin="0"
+              aria-valuemax="100"
+              aria-valuenow={Math.round(($player.progress || 0) * 100)}
+              onclick={seekFromWave}
+              onkeydown={(e) => {
+                if (e.key === 'ArrowRight') seek(($player.progress || 0) + 0.02);
+                else if (e.key === 'ArrowLeft') seek(($player.progress || 0) - 0.02);
+              }}
+            >
+              {#each bars as h, i}
+                <span
+                  class="wave-bar"
+                  class:played={i < playedBar}
+                  style="--h:{h}; --d:{(i % 12) * 0.07}s"
+                ></span>
+              {/each}
+            </div>
+          {/if}
+        </div>
       </div>
-    {/if}
+
+      <!-- Controles (solo móvil; en escritorio están en la PlayerBar) -->
+      {#if !showLyrics}
+        <div class="np-controls">
+          <div class="np-times">
+            <span class="time">{fmtTime($player.currentMs)}</span>
+            <span class="time">-{fmtTime(remainingMs)}</span>
+          </div>
+          <div class="controls-row">
+            <button class="ctrl-icon" class:active={$player.shuffle} onclick={() => player.toggleShuffle()} aria-label="Aleatorio">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+            </button>
+            <button class="ctrl-icon" onclick={playPrev} aria-label="Anterior">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+            </button>
+            <button class="play-btn" onclick={togglePlay} aria-label={$player.isPlaying ? 'Pausar' : 'Reproducir'}>
+              {#if $player.isLoading}
+                <span class="loading-pulse">···</span>
+              {:else if $player.isPlaying}
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+              {:else}
+                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+              {/if}
+            </button>
+            <button class="ctrl-icon" onclick={playNext} aria-label="Siguiente">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/></svg>
+            </button>
+            <button class="ctrl-icon" class:active={$player.repeat !== 'none'} onclick={() => player.cycleRepeat()} aria-label="Repetir">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/>{#if $player.repeat === 'one'}<line x1="12" y1="9" x2="12" y2="15"/><line x1="9" y1="12" x2="15" y2="12"/>{/if}</svg>
+            </button>
+          </div>
+        </div>
+      {/if}
+
+    </div>
   </div>
 </div>
+
+{#if showPlaylistModal && $player.currentTrack}
+  <PlaylistModal track={$player.currentTrack} onClose={() => (showPlaylistModal = false)} />
+{/if}
 
 <style>
   .now-playing {
     position: relative;
     height: 100%;
     overflow: hidden;
-    display: flex;
-    flex-direction: column;
+    background: var(--bg-primary);
+    background-image: radial-gradient(circle, var(--dot-color, rgba(0,0,0,0.05)) 1.5px, transparent 1.5px);
+    background-size: 22px 22px;
   }
 
-  /* Fondo borroso */
+  /* Halo con la portada, muy tenue, fundido con el fondo del tema */
   .bg-art {
-    position: absolute; inset: 0;
+    position: absolute; inset: -10%;
     background-size: cover; background-position: center;
-    filter: blur(60px) saturate(1.4) brightness(0.4);
-    transform: scale(1.1);
+    filter: blur(90px) saturate(1.5);
+    opacity: 0.28;
     z-index: 0;
   }
   .bg-overlay {
     position: absolute; inset: 0;
-    background: linear-gradient(180deg, rgba(0,0,0,0.55) 0%, rgba(0,0,0,0.3) 50%, rgba(0,0,0,0.7) 100%);
+    background:
+      radial-gradient(ellipse at center, transparent 0%, var(--bg-primary) 78%);
     z-index: 1;
   }
-  .bg-dots {
-    position: absolute; inset: 0;
-    background-image: radial-gradient(circle, rgba(255,255,255,0.04) 1.5px, transparent 1.5px);
-    background-size: 22px 22px;
-    z-index: 2;
-    pointer-events: none;
-  }
 
-  /* Layout */
   .np-layout {
-    position: relative; z-index: 3;
-    display: flex;
+    position: relative; z-index: 2;
     height: 100%;
-    gap: 0;
+    display: flex;
+    justify-content: center;
+    padding: 1.25rem clamp(1rem, 4vw, 3rem) 1.5rem;
+    overflow-y: auto;
   }
-  .np-layout.with-lyrics { gap: 0; }
-
-  /* Panel arte */
-  .art-panel {
-    flex: 1;
+  .np-inner {
+    width: 100%;
+    max-width: 960px;
     display: flex;
     flex-direction: column;
-    align-items: center;
-    padding: 1.5rem 2rem 1.5rem;
-    min-width: 0;
   }
 
+  /* ── Barra superior ── */
   .top-bar {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    width: 100%;
-    margin-bottom: 1.5rem;
-  }
-  .back-btn {
-    background: rgba(255,255,255,0.12);
-    border: 2px solid rgba(255,255,255,0.25);
-    color: #ffffff;
-    font-size: 0.78rem; font-weight: 800; font-family: inherit;
-    letter-spacing: 0.06em;
-    padding: 0.45rem 1rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: background 0.1s, border-color 0.1s;
-    text-transform: uppercase;
-  }
-  .back-btn:hover { background: rgba(255,255,255,0.22); border-color: rgba(255,255,255,0.5); }
-
-  .lyrics-toggle {
-    background: rgba(255,255,255,0.1);
-    border: 2px solid rgba(255,255,255,0.2);
-    color: rgba(255,255,255,0.7);
-    font-size: 0.72rem; font-weight: 800; font-family: inherit;
-    letter-spacing: 0.1em;
-    padding: 0.4rem 0.9rem;
-    border-radius: var(--radius-sm);
-    cursor: pointer;
-    transition: all 0.1s;
-  }
-  .lyrics-toggle:hover { background: rgba(255,255,255,0.2); color: #ffffff; }
-  .lyrics-toggle.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: #0d0d0d;
-    box-shadow: 3px 3px 0 rgba(0,0,0,0.4);
-  }
-
-  /* Álbum art */
-  .art-wrap {
-    margin: 0 auto;
-    width: min(280px, 70vw);
+    margin-bottom: 1.25rem;
     flex-shrink: 0;
   }
+  .round-btn {
+    width: 44px; height: 44px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: var(--stroke-heavy) solid var(--stroke);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.12s, transform 0.1s;
+  }
+  .round-btn:hover { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
+  .round-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+
+  .top-actions { display: flex; align-items: center; gap: 0.6rem; }
+
+  /* Autoplay: interruptor on/off neo-brutalista */
+  .autoplay-switch {
+    display: inline-flex; align-items: center; gap: 0.55rem;
+    background: var(--bg-card);
+    border: var(--stroke-heavy) solid var(--stroke);
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-sm);
+    padding: 0.4rem 0.75rem;
+    color: var(--text-muted);
+    font-size: 0.7rem; font-weight: 900; letter-spacing: 0.1em; font-family: inherit;
+    cursor: pointer;
+    transition: box-shadow 0.1s, transform 0.1s, color 0.1s;
+  }
+  .autoplay-switch:hover { box-shadow: var(--shadow); transform: translate(-1px, -1px); }
+  .autoplay-switch:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .autoplay-switch.on { color: var(--text-primary); }
+
+  .sw-track {
+    position: relative; width: 34px; height: 18px; flex-shrink: 0;
+    background: var(--bg-card-hover);
+    border: 2px solid var(--stroke);
+    border-radius: var(--radius-pill);
+    transition: background 0.15s;
+  }
+  .sw-knob {
+    position: absolute; top: 1px; left: 1px;
+    width: 12px; height: 12px;
+    background: var(--stroke); border-radius: 50%;
+    transition: transform 0.15s, background 0.15s;
+  }
+  .autoplay-switch.on .sw-track { background: var(--accent); }
+  .autoplay-switch.on .sw-knob { transform: translateX(16px); background: var(--on-accent); }
+  .lyrics-toggle {
+    background: var(--bg-card);
+    border: var(--stroke-heavy) solid var(--stroke);
+    color: var(--text-muted);
+    font-size: 0.72rem; font-weight: 900; font-family: inherit;
+    letter-spacing: 0.12em;
+    padding: 0.55rem 1rem;
+    border-radius: var(--radius-pill);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.12s, transform 0.1s, background 0.12s, color 0.12s;
+  }
+  .lyrics-toggle:hover { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
+  .lyrics-toggle.active {
+    background: var(--accent); color: var(--on-accent);
+    box-shadow: var(--shadow-accent);
+  }
+
+  /* ── Cuerpo ── */
+  .np-main {
+    display: flex;
+    align-items: center;
+    gap: clamp(1.5rem, 4vw, 3rem);
+    flex: 1;
+    min-height: 0;
+  }
+
+  .art-col { flex-shrink: 0; }
+  .art-wrap { width: clamp(220px, 32vw, 360px); }
   .art {
     width: 100%; aspect-ratio: 1;
-    object-fit: cover;
-    border-radius: 12px;
-    border: 3px solid rgba(255,255,255,0.15);
-    box-shadow: 6px 6px 0 rgba(0,0,0,0.6), 0 20px 60px rgba(0,0,0,0.5);
-    display: block;
+    object-fit: cover; display: block;
+    border-radius: var(--radius);
+    border: var(--stroke-heavy) solid var(--stroke);
+    box-shadow: var(--shadow-lg);
   }
   .art-empty {
     width: 100%; aspect-ratio: 1;
     position: relative; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
     background: var(--accent);
-    border-radius: 12px;
-    border: 3px solid rgba(255,255,255,0.15);
-    box-shadow: 6px 6px 0 rgba(0,0,0,0.6);
+    border-radius: var(--radius);
+    border: var(--stroke-heavy) solid var(--stroke);
+    box-shadow: var(--shadow-lg);
   }
   .empty-dots {
     position: absolute; inset: 0;
@@ -291,73 +468,177 @@
     background-size: 16px 16px;
   }
   .empty-g {
-    font-size: 6rem; font-weight: 900; color: #ffffff;
+    font-size: 6rem; font-weight: 900; color: var(--on-accent);
     position: relative; z-index: 1; letter-spacing: -0.04em;
-    text-shadow: 4px 4px 0 rgba(0,0,0,0.3);
   }
 
-  /* Track info */
-  .track-info {
-    text-align: center;
-    margin-top: 1.75rem;
-    max-width: 320px;
+  .info-col {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
   }
+
+  .badge {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    align-self: flex-start;
+    background: var(--accent); color: var(--on-accent);
+    font-size: 0.68rem; font-weight: 900; letter-spacing: 0.12em;
+    padding: 0.4rem 0.8rem;
+    border-radius: var(--radius-pill);
+    border: var(--stroke-w) solid var(--stroke);
+    box-shadow: var(--shadow-sm);
+    margin-bottom: 1rem;
+  }
+  .badge-eq { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+  .badge-eq i {
+    width: 2.5px; height: 40%;
+    background: var(--on-accent); border-radius: 1px;
+  }
+  .badge-eq.playing i { animation: eq 0.8s ease-in-out infinite alternate; }
+  .badge-eq.playing i:nth-child(2) { animation-delay: 0.25s; }
+  .badge-eq.playing i:nth-child(3) { animation-delay: 0.5s; }
+  /* Palestina: badge en rojo */
+  :global([data-theme="palestina"]) .badge { background: var(--accent-3); }
+
   .track-title {
-    font-size: 1.35rem; font-weight: 900; color: #ffffff;
-    letter-spacing: -0.02em; line-height: 1.2;
-    text-shadow: 0 2px 8px rgba(0,0,0,0.5);
-    margin-bottom: 0.4rem;
+    font-size: clamp(2rem, 5vw, 3.4rem);
+    font-weight: 900; color: var(--text-primary);
+    letter-spacing: -0.03em; line-height: 1.02;
+    margin-bottom: 0.6rem;
   }
   .track-artist {
-    font-size: 1rem; color: var(--accent);
-    font-weight: 700; margin-bottom: 0.2rem;
+    font-size: clamp(1.1rem, 2vw, 1.5rem);
+    color: var(--accent); font-weight: 800;
+    margin-bottom: 0.3rem;
   }
   .track-album {
-    font-size: 0.8rem; color: rgba(255,255,255,0.5);
-    font-weight: 500;
+    font-size: 0.95rem; color: var(--text-muted); font-weight: 600;
   }
 
-  /* Panel letra */
-  .lyrics-panel {
-    width: 320px;
-    min-width: 280px;
-    background: rgba(0,0,0,0.55);
-    border-left: 2px solid rgba(255,255,255,0.1);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    backdrop-filter: blur(20px);
+  .actions {
+    display: flex; gap: 0.75rem;
+    margin-top: 1.5rem;
   }
-  .lyrics-title {
-    font-size: 0.65rem; font-weight: 900; letter-spacing: 0.15em;
-    color: rgba(255,255,255,0.4); text-transform: uppercase;
-    padding: 1.5rem 1.5rem 0.75rem; flex-shrink: 0;
+  .action-btn {
+    width: 48px; height: 48px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: var(--stroke-heavy) solid var(--stroke);
+    box-shadow: var(--shadow-sm);
+    transition: box-shadow 0.12s, transform 0.1s, background 0.12s, color 0.12s;
+  }
+  .action-btn:hover { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
+  .action-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .action-btn.primary { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-accent); }
+  .action-btn.liked { background: var(--accent); color: var(--on-accent); }
+  /* Palestina: favorito en rojo */
+  :global([data-theme="palestina"]) .action-btn.primary,
+  :global([data-theme="palestina"]) .action-btn.liked {
+    background: var(--accent-3);
+    box-shadow: 4px 4px 0 var(--accent-3-dim);
+  }
+
+  /* ── Waveform ── */
+  .wave {
+    display: flex; align-items: flex-end; gap: 3px;
+    height: 64px; margin-top: 2rem;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: var(--radius-sm);
+  }
+  .wave:focus-visible { outline: var(--stroke-w) solid var(--accent); outline-offset: 4px; }
+  .wave-bar {
+    flex: 1;
+    min-width: 2px;
+    height: calc(var(--h) * 100%);
+    background: var(--text-dim);
+    border-radius: 2px;
+    transform-origin: bottom;
+    opacity: 0.55;
+    transition: background 0.2s, opacity 0.2s;
+  }
+  .wave-bar.played { background: var(--accent); opacity: 1; }
+  .wave.playing .wave-bar.played {
+    animation: eq 0.9s ease-in-out infinite alternate;
+    animation-delay: var(--d);
+  }
+
+  @keyframes eq { from { transform: scaleY(0.45); } to { transform: scaleY(1); } }
+
+  /* ── Letra ── */
+  /* Con letra activa, las columnas se estiran a toda la altura para que la
+     letra tenga un contenedor de altura fija y haga scroll interno (no la página). */
+  .np-layout.with-lyrics .np-main { align-items: stretch; }
+  .np-layout.with-lyrics .art-col { align-self: center; }
+
+  .lyrics-panel {
+    display: flex; flex-direction: column;
+    height: 100%; min-height: 0;
+    width: 100%;
   }
   .lyrics-status {
-    color: rgba(255,255,255,0.4); font-size: 0.85rem;
-    padding: 0 1.5rem; line-height: 1.6;
+    color: var(--text-muted); font-size: 0.9rem; line-height: 1.6;
+    margin: auto 0;
   }
   .lyrics-lines {
-    flex: 1;
-    overflow-y: auto;
-    padding: 0.5rem 1.5rem 3rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.1rem;
+    flex: 1; min-height: 0; overflow-y: auto;
+    display: flex; flex-direction: column; gap: 0.35rem;
+    padding: 0.5rem 0.75rem 2rem;
+    scroll-behavior: smooth;
+    mask-image: linear-gradient(180deg, transparent, #000 14%, #000 86%, transparent);
+    scrollbar-width: none;
   }
-  .lyrics-lines::-webkit-scrollbar { width: 3px; }
-  .lyrics-lines::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-
+  .lyrics-lines::-webkit-scrollbar { display: none; }
   .lyric-line {
-    font-size: 1rem; font-weight: 600; color: rgba(255,255,255,0.3);
-    line-height: 1.7; cursor: default;
-    transition: color 0.3s, font-size 0.3s, font-weight 0.3s;
-    padding: 0.1rem 0;
+    font-size: 1.2rem; font-weight: 700; color: var(--text-dim);
+    line-height: 1.55; opacity: 0.6;
+    transition: color 0.25s, font-size 0.25s, opacity 0.25s;
   }
-  .lyric-line.past { color: rgba(255,255,255,0.25); }
+  .lyric-line.past { color: var(--text-muted); opacity: 0.45; }
   .lyric-line.active {
-    color: #ffffff;
-    font-size: 1.1rem; font-weight: 800;
+    color: var(--accent); font-size: 1.45rem; font-weight: 900; opacity: 1;
   }
-  .lyric-break { height: 1rem; }
+  .lyric-break { height: 0.8rem; }
+
+  /* Controles: ocultos en escritorio (están en la PlayerBar), visibles en móvil */
+  .np-controls { display: none; }
+  @keyframes pulse { 50% { opacity: 0; } }
+
+  /* ── Responsive / móvil ── */
+  @media (max-width: 768px) {
+    .np-main { flex-direction: column; text-align: center; }
+    .info-col { align-items: center; }
+    .badge, .actions { align-self: center; }
+    .art-wrap { width: min(72vw, 320px); }
+    .wave { width: 100%; }
+
+    .np-controls {
+      display: flex; flex-direction: column; gap: 0.6rem;
+      flex-shrink: 0; margin-top: 1.25rem;
+    }
+    .np-times { display: flex; justify-content: space-between; padding: 0 0.25rem; }
+    .np-times .time {
+      font-size: 0.72rem; color: var(--text-muted); font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+    .controls-row { display: flex; align-items: center; justify-content: center; gap: 0.4rem; }
+    .ctrl-icon {
+      width: 46px; height: 46px; border-radius: 50%;
+      background: none; border: none; color: var(--text-muted);
+      display: flex; align-items: center; justify-content: center;
+    }
+    .ctrl-icon.active { color: var(--accent); }
+    .play-btn {
+      width: 64px; height: 64px; border-radius: 50%;
+      background: var(--accent); color: var(--on-accent);
+      border: var(--stroke-heavy) solid var(--stroke);
+      display: flex; align-items: center; justify-content: center;
+      box-shadow: var(--shadow-accent); margin: 0 0.4rem;
+    }
+    .play-btn:active { transform: translate(0,0); box-shadow: 1px 1px 0 var(--stroke); }
+    .loading-pulse { animation: pulse 1s step-end infinite; font-weight: 700; }
+  }
 </style>

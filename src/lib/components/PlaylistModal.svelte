@@ -1,6 +1,7 @@
 <script lang="ts">
   import { playlists } from '$lib/stores/playlists';
   import type { Track } from '$lib/stores/player';
+  import { imgFallback } from '$lib/imgFallback';
 
   interface Props { track: Track; onClose: () => void; }
   let { track, onClose }: Props = $props();
@@ -40,7 +41,7 @@
   <!-- Track preview -->
   <div class="track-preview">
     {#if track.thumbnail}
-      <img src={track.thumbnail} alt="" class="preview-art" />
+      <img src={track.thumbnail} alt="" class="preview-art" use:imgFallback />
     {:else}
       <div class="preview-art preview-art-empty">[♪]</div>
     {/if}

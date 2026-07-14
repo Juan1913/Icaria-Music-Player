@@ -1,8 +1,47 @@
 <script lang="ts">
   import { player } from '$lib/stores/player';
-  import { resolveStream, getRadioTracks } from '$lib/api';
+  import { favorites } from '$lib/stores/favorites';
+  import { nav } from '$lib/stores/nav';
   import { get } from 'svelte/store';
-  import type { Track } from '$lib/stores/player';
+  import { onMount } from 'svelte';
+  import { playNext as handleNext, playPrev as handlePrev, playRadio, seekRequest } from '$lib/playback';
+
+  // ── Media Session: controles en pantalla de bloqueo / notificación (Android/desktop) ──
+  onMount(() => {
+    if (!('mediaSession' in navigator)) return;
+    const ms = navigator.mediaSession;
+    ms.setActionHandler('play', () => player.setPlaying(true));
+    ms.setActionHandler('pause', () => player.setPlaying(false));
+    ms.setActionHandler('previoustrack', () => { handlePrev(); });
+    ms.setActionHandler('nexttrack', () => { handleNext(); });
+    try {
+      ms.setActionHandler('seekto', (d) => {
+        if (audioEl && typeof d.seekTime === 'number') audioEl.currentTime = d.seekTime;
+      });
+    } catch { /* algunos webviews no soportan seekto */ }
+  });
+
+  // Metadatos de la pista actual (título/artista/carátula) para el control del sistema
+  $effect(() => {
+    if (!('mediaSession' in navigator)) return;
+    const t = $player.currentTrack;
+    if (!t) { navigator.mediaSession.metadata = null; return; }
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: t.title,
+      artist: t.artist,
+      album: t.album ?? '',
+      artwork: t.thumbnail
+        ? [{ src: t.thumbnail, sizes: '512x512', type: 'image/jpeg' }]
+        : [],
+    });
+  });
+
+  // Estado de reproducción (play/pausa) reflejado en el control del sistema
+  $effect(() => {
+    if ('mediaSession' in navigator) {
+      navigator.mediaSession.playbackState = $player.isPlaying ? 'playing' : 'paused';
+    }
+  });
 
   let audioEl: HTMLAudioElement | undefined = $state();
   let duration = $state(0);
@@ -11,36 +50,6 @@
 
   let pendingPlay = $state(false);
   let expectedUrl: string | null = null;
-
-  // Carga y reproduce una pista explícitamente (sin depender de $effect)
-  async function streamAndPlay(track: Track) {
-    player.setTrackLoading(track);
-    try {
-      const stream = await resolveStream(track);
-      player.setStreamUrl(stream.url);
-    } catch (e) {
-      player.setError(`ERROR: ${e}`);
-    }
-  }
-
-  async function handleNext() {
-    const s = get(player);
-    if (s.queue.length === 0) return;
-    if (s.queueIndex >= s.queue.length - 1 && s.repeat !== 'all') return;
-    player.next();
-    const after = get(player);
-    const track = after.queue[after.queueIndex];
-    if (track) await streamAndPlay(track);
-  }
-
-  async function handlePrev() {
-    const s = get(player);
-    if (s.queue.length === 0) return;
-    player.prev();
-    const after = get(player);
-    const track = after.queue[after.queueIndex];
-    if (track) await streamAndPlay(track);
-  }
 
   // Audio element ↔ player state sync
   $effect(() => {
@@ -80,6 +89,15 @@
     if (audioEl) audioEl.volume = $player.isMuted ? 0 : $player.volume;
   });
 
+  // Aplica un seek pedido desde otra vista (p. ej. Now Playing).
+  $effect(() => {
+    const f = $seekRequest;
+    if (f == null || !audioEl || !duration) return;
+    audioEl.currentTime = f * duration;
+    player.setProgress(audioEl.currentTime * 1000, duration * 1000);
+    seekRequest.set(null);
+  });
+
   function onCanPlay() {
     player.setLoading(false);
     if (pendingPlay && audioEl) {
@@ -90,6 +108,15 @@
   function onTimeUpdate() {
     if (!audioEl || seeking) return;
     player.setProgress(audioEl.currentTime * 1000, duration * 1000);
+    if ('mediaSession' in navigator && 'setPositionState' in navigator.mediaSession && duration > 0) {
+      try {
+        navigator.mediaSession.setPositionState({
+          duration,
+          playbackRate: audioEl.playbackRate || 1,
+          position: Math.min(audioEl.currentTime, duration),
+        });
+      } catch { /* valores inválidos: ignorar */ }
+    }
   }
   function onLoadedMetadata() { if (audioEl) duration = audioEl.duration; }
   async function onEnded() {
@@ -98,21 +125,19 @@
       return;
     }
     const s = get(player);
-    const isExhausted = s.queue.length === 0 || s.queueIndex < 0 || s.queueIndex >= s.queue.length - 1;
-    if (isExhausted && s.repeat !== 'all' && s.currentTrack) {
-      // Radio: YouTube Music RDAMVM mix (similar artists, not just same artist)
-      try {
-        const tracks = await getRadioTracks(s.currentTrack.streamId, 20);
-        if (tracks.length > 0) {
-          player.setQueue(tracks, 0);
-          await streamAndPlay(tracks[0]);
-        }
-      } catch { /* si falla el radio, no pasa nada */ }
-    } else {
+    const hasNext = s.queue.length > 0 &&
+      ((s.shuffle && s.queue.length > 1) || s.queueIndex < s.queue.length - 1 || s.repeat === 'all');
+    if (hasNext) {
       await handleNext();
+    } else if (s.autoplay) {
+      // Fin de la cola: radio de temas similares (si autoplay está activo)
+      await playRadio();
+    } else {
+      player.setPlaying(false);
     }
   }
   function togglePlay() { player.setPlaying(!$player.isPlaying); }
+  function openNowPlaying() { if ($player.currentTrack) nav.setPage('nowplaying'); }
   function onSeekInput(e: Event) {
     seeking = true;
     seekValue = +(e.target as HTMLInputElement).value;
@@ -131,6 +156,7 @@
   }
   const pct = $derived(seeking ? seekValue : $player.progress * 100);
   const hasTrack = $derived(!!$player.currentTrack);
+  const isFav = $derived(!!$player.currentTrack && $favorites.some(t => t.id === $player.currentTrack!.id));
 </script>
 
 <audio
@@ -149,8 +175,17 @@
 
 <div class="player-bar" class:has-track={hasTrack}>
 
-  <!-- LEFT: art + meta + extra btns -->
-  <div class="track-section">
+  <!-- Progreso fino (solo visible en móvil) -->
+  <div class="mobile-progress"><div class="mobile-progress-fill" style="width:{pct}%"></div></div>
+
+  <!-- LEFT: art + meta + extra btns (en móvil, toca para abrir la reproducción) -->
+  <div
+    class="track-section"
+    role="button"
+    tabindex="0"
+    onclick={openNowPlaying}
+    onkeydown={(e) => { if (e.key === 'Enter') openNowPlaying(); }}
+  >
     <div class="art-wrap">
       {#if $player.currentTrack?.thumbnail}
         <img class="art" src={$player.currentTrack.thumbnail} alt="cover" />
@@ -160,7 +195,7 @@
           {#if $player.isLoading}
             <span class="loading-pulse" style="position:relative;z-index:1">···</span>
           {:else}
-            <span class="empty-g-bar">G</span>
+            <span class="empty-g-bar">I</span>
           {/if}
         </div>
       {/if}
@@ -173,16 +208,22 @@
       <span class="track-title" title={$player.currentTrack?.title ?? ''}>
         {$player.currentTrack?.title ?? '─── sin canción ───'}
       </span>
-      <span class="track-sub">{$player.currentTrack?.artist ?? 'GROOVE'}</span>
+      <span class="track-sub">{$player.currentTrack?.artist ?? 'Icaria'}</span>
     </div>
 
     <div class="extra-btns">
-      <button class="icon-btn" title="Favorito">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <button
+        class="icon-btn"
+        class:fav={isFav}
+        onclick={(e) => { e.stopPropagation(); if ($player.currentTrack) favorites.toggle($player.currentTrack); }}
+        title={isFav ? 'Quitar de favoritos' : 'Favorito'}
+        aria-pressed={isFav}
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill={isFav ? 'currentColor' : 'none'} stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/>
         </svg>
       </button>
-      <button class="icon-btn" onclick={() => { if ($player.currentTrack) player.addToQueue($player.currentTrack); }} title="Añadir">
+      <button class="icon-btn" onclick={(e) => { e.stopPropagation(); if ($player.currentTrack) player.addToQueue($player.currentTrack); }} title="Añadir">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
@@ -317,6 +358,17 @@
     position: relative;
   }
 
+  /* Progreso fino (solo móvil) */
+  .mobile-progress {
+    display: none;
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--bg-card-hover);
+  }
+  .mobile-progress-fill {
+    height: 100%; background: var(--accent);
+    transition: width 0.1s linear;
+  }
+
   /* ── LEFT: art + meta + extra btns ── */
   .track-section {
     display: flex; align-items: center; gap: 0.85rem; min-width: 0;
@@ -385,6 +437,8 @@
     transition: color 0.12s, background 0.12s;
   }
   .icon-btn:hover { color: var(--text-primary); background: var(--bg-card-hover); }
+  .icon-btn.fav { color: var(--accent); }
+  :global([data-theme="palestina"]) .icon-btn.fav { color: var(--accent-3); }
 
   /* ── CENTER: controls + progress ── */
   .center-section {
@@ -468,4 +522,35 @@
   }
 
   :global([data-theme="jamaica"]) .play-btn { background: #009B45; }
+
+  /* Palestina: verde + borde negro + sombra roja → los tres colores en un botón */
+  :global([data-theme="palestina"]) .play-btn { box-shadow: 4px 4px 0 var(--accent-3-dim); }
+  :global([data-theme="palestina"]) .play-btn:hover { box-shadow: 6px 6px 0 var(--accent-3-dim); }
+
+  /* ── Móvil: mini-reproductor (art + título + play) ── */
+  @media (max-width: 768px) {
+    .player-bar {
+      height: 62px;
+      margin: 0;
+      border-radius: 0;
+      border-left: none; border-right: none; border-bottom: none;
+      box-shadow: none;
+      grid-template-columns: 1fr auto;
+      padding: 0 0.75rem;
+      gap: 0.5rem;
+    }
+    .mobile-progress { display: block; }
+    .track-section { cursor: pointer; gap: 0.6rem; }
+    .art, .art-empty { width: 46px; height: 46px; box-shadow: none; border-width: var(--stroke-w); }
+    .extra-btns { display: none; }
+    .progress-row { display: none; }
+    .right-section { display: none; }
+    .controls-row .ctrl-icon { display: none; }
+    .center-section { flex-direction: row; gap: 0; }
+    .play-btn {
+      width: 44px; height: 44px; margin: 0;
+      box-shadow: 3px 3px 0 var(--stroke);
+    }
+    .play-btn:hover { transform: none; }
+  }
 </style>

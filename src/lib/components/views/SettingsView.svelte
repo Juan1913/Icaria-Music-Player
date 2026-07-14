@@ -118,7 +118,7 @@
     <div class="card nb-card about-card">
       <div class="about-logo">
         <span class="ab-bracket">[</span>
-        <span class="ab-text">GROOVE</span>
+        <span class="ab-text">ICARIA</span>
         <span class="ab-bracket">]</span>
       </div>
       <p class="about-desc">

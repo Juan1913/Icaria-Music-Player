@@ -1,9 +1,9 @@
 <script lang="ts">
   import { playlists } from '$lib/stores/playlists';
   import { nav, type NavPage } from '$lib/stores/nav';
-  import { theme, THEME_LABELS, THEME_COLORS, type Theme } from '$lib/stores/theme';
+  import { theme, THEMES, THEME_LABELS, THEME_COLORS, type Theme } from '$lib/stores/theme';
 
-  const ALL_THEMES: Theme[] = ['paper', 'dracula', 'gruvbox', 'jamaica'];
+  const ALL_THEMES = THEMES;
 
   let activePage = $derived($nav.page);
   let showThemePopup = $state(false);
@@ -12,6 +12,7 @@
     { id: 'home',   label: 'Inicio',    icon: '⌂' },
   ];
   const libItems: { id: NavPage; label: string; icon: string }[] = [
+    { id: 'favorites', label: 'Favoritos', icon: '♥' },
     { id: 'library', label: 'Biblioteca', icon: '▤' },
   ];
 
@@ -46,18 +47,21 @@
 <aside class="sidebar">
   <!-- Logo -->
   <div class="logo-area">
-    <div class="logo-icon">♪</div>
+    <div class="logo-icon" class:flag={$theme === 'palestina'}>
+      {#if $theme === 'palestina'}
+        <span class="pal-flag" role="img" aria-label="Bandera de Palestina"></span>
+      {:else}
+        <svg class="logo-wing" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+          <line x1="16" y1="8" x2="2" y2="22" />
+          <line x1="17.5" y1="15" x2="9" y2="15" />
+        </svg>
+      {/if}
+    </div>
     <div class="logo-name">
-      <span class="logo-main">GROOVE</span>
+      <span class="logo-main">ICARIA</span>
       <span class="logo-sub">música libre</span>
     </div>
-    <button class="bell-btn" onclick={() => showThemePopup = !showThemePopup} title="Cambiar tema">
-      <svg class="bell-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-        <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-      </svg>
-      <span class="bell-dot" style="background:{THEME_COLORS[$theme]}"></span>
-    </button>
   </div>
 
   <!-- Main nav -->
@@ -71,6 +75,21 @@
         <span class="nav-label">{item.label}</span>
       </button>
     {/each}
+
+    <button
+      class="nav-item {showThemePopup ? 'active' : ''}"
+      onclick={() => showThemePopup = !showThemePopup}
+    >
+      <span class="nav-icon">
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M18.37 2.63 14 7l-1.59-1.59a2 2 0 0 0-2.82 0L8 7l9 9 1.59-1.59a2 2 0 0 0 0-2.82L17 10l4.37-4.37a2.12 2.12 0 1 0-3-3Z"/>
+          <path d="M9 8c-2 3-4 3.5-7 4l8 10c2-1 6-5 6-7"/>
+          <path d="M14.5 17.5 4.5 15"/>
+        </svg>
+      </span>
+      <span class="nav-label">Temas</span>
+      <span class="theme-swatch" style="background:{THEME_COLORS[$theme]}"></span>
+    </button>
   </nav>
 
   <!-- Library -->
@@ -221,25 +240,12 @@
 
   .sidebar-spacer { flex: 1; min-height: 0.5rem; }
 
-  /* Bell icon button (in logo area) */
-  .bell-btn {
-    width: 36px; height: 36px; flex-shrink: 0;
-    background: var(--bg-card);
-    border: var(--stroke-heavy) solid var(--stroke);
-    border-radius: 50%;
-    box-shadow: var(--shadow-sm);
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: transform 0.1s, box-shadow 0.1s;
-    position: relative;
-    color: var(--text-primary);
-  }
-  .bell-btn:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow); }
-  .bell-icon { display: block; flex-shrink: 0; }
-  .bell-dot {
-    position: absolute; top: 5px; right: 5px;
-    width: 8px; height: 8px; border-radius: 50%;
-    border: 1.5px solid var(--bg-card);
+  /* Ítem "Temas": ícono de brocha centrado + swatch del tema actual */
+  .nav-icon svg { display: block; margin: 0 auto; }
+  .theme-swatch {
+    width: 14px; height: 14px; border-radius: 50%;
+    border: 2px solid var(--stroke);
+    flex-shrink: 0;
   }
 
   /* Dracula: borde blanco en el logo */
@@ -253,6 +259,30 @@
     background: var(--accent-2);
     box-shadow: 3px 3px 0 var(--accent);
   }
+
+  /* Palestina: el logo es la bandera */
+  .logo-icon.flag { padding: 0; overflow: hidden; background: #000; }
+  .pal-flag {
+    width: 100%; height: 100%;
+    display: block; position: relative;
+    /* Franjas: negro · blanco · verde */
+    background: linear-gradient(
+      to bottom,
+      #000 0 33.34%,
+      #fff 33.34% 66.67%,
+      #007A3D 66.67% 100%
+    );
+  }
+  /* Triángulo rojo del asta */
+  .pal-flag::before {
+    content: '';
+    position: absolute; inset: 0;
+    width: 48%;
+    background: #CE1126;
+    clip-path: polygon(0 0, 100% 50%, 0 100%);
+  }
+  /* Palestina: item activo en rojo (el verde queda para reproducción) */
+  :global([data-theme="palestina"]) .nav-item.active { background: var(--accent-3); }
 
   /* ── Theme popup ── */
   .popup-backdrop {

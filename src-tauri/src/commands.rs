@@ -43,10 +43,10 @@ pub async fn get_artist(browse_id: String) -> Result<ArtistDetail, String> {
 
 #[tauri::command]
 pub async fn get_album(browse_id: String) -> Result<AlbumDetail, String> {
-    eprintln!("[Groove] get_album browseId={:?}", browse_id);
+    eprintln!("[Icaria] get_album browseId={:?}", browse_id);
     piped::get_album(&browse_id)
         .await
-        .map_err(|e| { eprintln!("[Groove] get_album error: {}", e); e.to_string() })
+        .map_err(|e| { eprintln!("[Icaria] get_album error: {}", e); e.to_string() })
 }
 
 #[tauri::command]

@@ -1,5 +1,6 @@
 import { writable, derived, get } from 'svelte/store';
 import { preloadStream } from '$lib/api';
+import { history } from '$lib/stores/history';
 
 export interface Track {
   id: string;
@@ -67,6 +68,15 @@ export interface PlayerState {
   queueIndex: number;
   isLoading: boolean;
   error: string | null;
+  autoplay: boolean;      // al acabar la cola, seguir con música relacionada
+}
+
+function loadAutoplay(): boolean {
+  try {
+    return localStorage.getItem('icaria_autoplay') !== 'false';
+  } catch {
+    return true;
+  }
 }
 
 const initial: PlayerState = {
@@ -83,6 +93,7 @@ const initial: PlayerState = {
   queueIndex: -1,
   isLoading: false,
   error: null,
+  autoplay: loadAutoplay(),
 };
 
 function createPlayerStore() {
@@ -102,6 +113,7 @@ function createPlayerStore() {
     subscribe,
 
     setTrack(track: Track, url: string) {
+      history.record(track);
       update(s => {
         const next = { ...s, currentTrack: track, streamUrl: url, isPlaying: true, isLoading: true, progress: 0, currentMs: 0, error: null };
         prefetchNext(next);
@@ -111,6 +123,7 @@ function createPlayerStore() {
 
     // Show the track in the player bar immediately, before the stream URL is ready.
     setTrackLoading(track: Track) {
+      history.record(track);
       update(s => ({
         ...s,
         currentTrack: track,
@@ -148,6 +161,14 @@ function createPlayerStore() {
       update(s => ({ ...s, shuffle: !s.shuffle }));
     },
 
+    toggleAutoplay() {
+      update(s => {
+        const next = !s.autoplay;
+        try { localStorage.setItem('icaria_autoplay', String(next)); } catch {}
+        return { ...s, autoplay: next };
+      });
+    },
+
     cycleRepeat() {
       update(s => {
         const next = s.repeat === 'none' ? 'all' : s.repeat === 'all' ? 'one' : 'none';
@@ -182,8 +203,14 @@ function createPlayerStore() {
     next() {
       update(s => {
         if (s.queue.length === 0) return s;
-        let idx = s.queueIndex + 1;
-        if (idx >= s.queue.length) idx = s.repeat === 'all' ? 0 : s.queue.length - 1;
+        let idx: number;
+        if (s.shuffle && s.queue.length > 1) {
+          // Aleatorio: índice al azar distinto del actual
+          do { idx = Math.floor(Math.random() * s.queue.length); } while (idx === s.queueIndex);
+        } else {
+          idx = s.queueIndex + 1;
+          if (idx >= s.queue.length) idx = s.repeat === 'all' ? 0 : s.queue.length - 1;
+        }
         const next = { ...s, queueIndex: idx };
         prefetchNext(next);
         return next;

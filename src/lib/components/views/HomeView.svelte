@@ -1,47 +1,110 @@
 <script lang="ts">
-  import { searchYouTubeAll, resolveStream } from '$lib/api';
+  import { searchYouTubeAll, resolveStream, getRadioTracks, preloadStream } from '$lib/api';
   import { player } from '$lib/stores/player';
   import type { Track } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
+  import { history } from '$lib/stores/history';
+  import { imgFallback } from '$lib/imgFallback';
+  import HScroll from '$lib/components/HScroll.svelte';
+  import { get } from 'svelte/store';
 
   const CATEGORIES = [
-    { id: 'Todo',        label: 'Todo'        },
-    { id: 'Pop',         label: 'Pop'         },
-    { id: 'Rock',        label: 'Rock'        },
-    { id: 'Hip-Hop',     label: 'Hip-Hop'     },
-    { id: 'Electrónica', label: 'Electrónica' },
-    { id: 'Jazz',        label: 'Jazz'        },
-    { id: 'Relax',       label: 'Relax'       },
-    { id: 'Clásica',     label: 'Clásica'     },
+    { id: 'parati',     label: 'Para ti'         },
+    { id: 'hiphop',     label: 'Hip-Hop'         },
+    { id: 'punk',       label: 'Punk'            },
+    { id: 'ska',        label: 'Ska'             },
+    { id: 'rocksteady', label: 'Rocksteady'      },
+    { id: 'metal',      label: 'Metal'           },
+    { id: 'salsa',      label: 'Salsa'           },
+    { id: 'latino',     label: 'Latinoamericana' },
   ];
 
   const GENRE_QUERIES: Record<string, string> = {
-    'Todo':        'top hits music 2025',
-    'Pop':         'top pop songs 2025',
-    'Rock':        'best rock songs 2025',
-    'Hip-Hop':     'top hip hop rap songs 2025',
-    'Electrónica': 'best electronic dance music 2025',
-    'Jazz':        'best jazz music playlist',
-    'Relax':       'relaxing chill music playlist',
-    'Clásica':     'classical music masterpieces',
+    hiphop:     'hip hop rap',
+    punk:       'punk rock',
+    ska:        'ska',
+    rocksteady: 'rocksteady',
+    metal:      'heavy metal',
+    salsa:      'salsa',
+    latino:     'música latinoamericana',
   };
 
-  let activeCategory = $state('Todo');
+  // Semillas para "Para ti" cuando aún no hay historial: música alternativa
+  // (mezcla de artistas y géneros), elegidas al azar.
+  const DEFAULT_SEEDS = [
+    'Calle 13',
+    'punk rock en español',
+    'música tradicional colombiana',
+    'rock latinoamericano',
+    'Aterciopelados',
+    'salsa',
+    'son cubano',
+    'ska',
+    'cumbia colombiana',
+    'Manu Chao',
+    'heavy metal',
+  ];
+
+  let activeCategory = $state('parati');
 
   let tracks  = $state<Track[]>([]);
   let loading = $state(true);
 
+  function shuffle<T>(arr: T[]): T[] {
+    const a = [...arr];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  /** Recomendación por defecto: una semilla alternativa al azar de la lista base. */
+  async function fetchRandomDefault(): Promise<Track[]> {
+    const g = DEFAULT_SEEDS[Math.floor(Math.random() * DEFAULT_SEEDS.length)];
+    const r = await searchYouTubeAll(g, 20);
+    return shuffle(r.tracks);
+  }
+
+  /** "Para ti": mezcla los mixes de YouTube Music de varias pistas recientes del
+   *  historial (artistas afines); si no hay historial, cae en la lista base. */
+  async function fetchParaTi(): Promise<Track[]> {
+    const hist = get(history);
+    if (hist.length === 0) return fetchRandomDefault();
+
+    // Hasta 3 semillas distintas del historial reciente
+    const seeds = shuffle(hist.slice(0, 12)).slice(0, 3);
+    const radios = await Promise.all(
+      seeds.map(s => getRadioTracks(s.streamId, 15).catch(() => [] as Track[]))
+    );
+
+    const seen = new Set<string>();
+    const merged: Track[] = [];
+    for (const list of radios) {
+      for (const t of list) {
+        if (!seen.has(t.id)) { seen.add(t.id); merged.push(t); }
+      }
+    }
+
+    return merged.length > 0 ? shuffle(merged) : fetchRandomDefault();
+  }
+
   async function fetchForCategory(cat: string) {
     loading = true;
     try {
-      const r = await searchYouTubeAll(GENRE_QUERIES[cat] ?? GENRE_QUERIES['Todo'], 20);
-      tracks = r.tracks;
+      if (cat === 'parati') {
+        tracks = await fetchParaTi();
+      } else {
+        const r = await searchYouTubeAll(GENRE_QUERIES[cat] ?? DEFAULT_SEEDS[0], 20);
+        tracks = r.tracks;
+      }
     } catch {
       tracks = [];
     } finally {
       loading = false;
     }
   }
+
 
   $effect(() => {
     fetchForCategory(activeCategory);
@@ -54,6 +117,11 @@
 
   const featured = $derived(tracks.slice(0, 3));
   const popular  = $derived(tracks.slice(3));
+
+  // Precarga los destacados para que empiecen al instante al hacer click.
+  $effect(() => {
+    for (const t of featured) preloadStream(t);
+  });
 
   async function playTrack(track: Track) {
     player.setTrackLoading(track);
@@ -70,7 +138,27 @@
 </script>
 
 <div class="home-view">
-  <!-- Topbar -->
+  <!-- Header móvil: logo + barra de búsqueda (como el mockup) -->
+  <div class="mobile-header">
+    <div class="mh-logo">
+      <div class="mh-logo-box">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+          <line x1="16" y1="8" x2="2" y2="22" />
+          <line x1="17.5" y1="15" x2="9" y2="15" />
+        </svg>
+      </div>
+      <div class="mh-name"><b>ICARIA</b><span>música libre</span></div>
+    </div>
+    <button class="mh-search" onclick={() => nav.openSearch('')}>
+      <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round">
+        <circle cx="8.5" cy="8.5" r="5.5"/><line x1="13" y1="13" x2="18" y2="18"/>
+      </svg>
+      <span>Buscar música, artistas, álbumes...</span>
+    </button>
+  </div>
+
+  <!-- Topbar (escritorio) -->
   <div class="topbar">
     <h1 class="page-title">Inicio</h1>
     <button class="search-fab" onclick={() => nav.openSearch('')} title="Buscar">
@@ -103,14 +191,15 @@
             <button
               class="feat-card {playing ? 'playing' : ''}"
               onclick={() => playTrack(track)}
+              onmouseenter={() => preloadStream(track)}
             >
               <div class="feat-img-half">
                 {#if track.thumbnail}
-                  <img class="feat-img" src={track.thumbnail} alt="" />
+                  <img class="feat-img" src={track.thumbnail} alt="" use:imgFallback />
                 {:else}
                   <div class="feat-img feat-empty">
                     <div class="empty-dots"></div>
-                    <span class="empty-g">G</span>
+                    <span class="empty-g">I</span>
                   </div>
                 {/if}
               </div>
@@ -135,29 +224,29 @@
     <section class="section">
       <div class="section-head">
         <span class="section-icon cat-icon-dot">●</span>
-        <span class="section-title">Categorías</span>
+        <span class="section-title">Géneros</span>
         <div class="section-rule"></div>
         <button class="ver-todo" onclick={() => {}}>VER TODO &rsaquo;</button>
       </div>
-      <div class="cats-row">
+      <HScroll gap="0.55rem">
         {#each CATEGORIES as cat}
           <button
             class="cat-pill {activeCategory === cat.id ? 'active' : ''}"
             onclick={() => selectCategory(cat.id)}
           >{cat.label}</button>
         {/each}
-      </div>
+      </HScroll>
     </section>
 
     <!-- ── CANCIONES POPULARES (horizontal scroll) ── -->
     <section class="section section-last">
       <div class="section-head">
-        <span class="section-icon fire-icon">🔥</span>
+        <span class="section-icon cat-icon-dot">●</span>
         <span class="section-title">Canciones populares</span>
         <div class="section-rule"></div>
         <button class="ver-todo" onclick={() => {}}>VER TODO &rsaquo;</button>
       </div>
-      <div class="popular-row">
+      <HScroll gap="0.9rem">
         {#if loading}
           {#each [1,2,3,4,5,6] as _}
             <div class="pop-skeleton"></div>
@@ -168,14 +257,15 @@
             <button
               class="pop-card {playing ? 'playing' : ''}"
               onclick={() => playTrack(track)}
+              onmouseenter={() => preloadStream(track)}
             >
               <div class="pop-art-wrap">
                 {#if track.thumbnail}
-                  <img class="pop-art" src={track.thumbnail} alt="" />
+                  <img class="pop-art" src={track.thumbnail} alt="" use:imgFallback />
                 {:else}
                   <div class="pop-art pop-empty">
                     <div class="empty-dots"></div>
-                    <span class="empty-g-sm">G</span>
+                    <span class="empty-g-sm">I</span>
                   </div>
                 {/if}
                 <div class="pop-overlay">{playing && $player.isPlaying ? '▮▮' : '▶'}</div>
@@ -187,20 +277,26 @@
             </button>
           {/each}
         {/if}
-      </div>
+      </HScroll>
     </section>
 
   </div>
 </div>
 
 <style>
-  .home-view { display: flex; flex-direction: column; height: 100%; }
-  .scroll-area { flex: 1; overflow-y: auto; }
+  /* Un único contenedor con scroll (como el resto de vistas) para que la rueda
+     del ratón funcione; el padding-bottom deja libre el reproductor fijo. */
+  .home-view { height: 100%; overflow-y: auto; padding-bottom: 130px; }
+
+  /* Header móvil (oculto en escritorio) */
+  .mobile-header { display: none; }
 
   /* ── Topbar ── */
   .topbar {
     display: flex; align-items: flex-start; justify-content: space-between;
-    padding: 1.5rem 1.5rem 1rem; flex-shrink: 0;
+    padding: 1.5rem 1.5rem 1rem;
+    position: sticky; top: 0; z-index: 5;
+    background: var(--bg-primary);
   }
   .page-title {
     font-size: 3.2rem; font-weight: 900; color: var(--text-primary);
@@ -225,7 +321,6 @@
   .section-head { display: flex; align-items: center; gap: 0.55rem; margin-bottom: 1rem; }
   .section-icon { font-size: 0.82rem; color: var(--accent); flex-shrink: 0; line-height: 1; }
   .cat-icon-dot { color: #f97316; font-size: 0.7rem; }
-  .fire-icon { font-size: 0.9rem; }
   .section-title {
     font-size: 0.95rem; font-weight: 900; color: var(--text-primary);
     white-space: nowrap; letter-spacing: 0.01em;
@@ -318,11 +413,6 @@
   }
 
   /* ── Category pills ── */
-  .cats-row {
-    display: flex; gap: 0.55rem; overflow-x: auto; padding-bottom: 0.2rem;
-    scrollbar-width: none;
-  }
-  .cats-row::-webkit-scrollbar { display: none; }
   .cat-pill {
     flex-shrink: 0; padding: 0.42rem 1.15rem;
     background: var(--bg-card);
@@ -344,14 +434,7 @@
     box-shadow: var(--shadow-accent);
   }
 
-  /* ── Popular songs (horizontal scroll) ── */
-  .popular-row {
-    display: flex; gap: 0.9rem; overflow-x: auto; padding-bottom: 0.5rem;
-    scroll-snap-type: x mandatory; scrollbar-width: thin;
-    scrollbar-color: var(--bg-card-hover) transparent;
-  }
-  .popular-row::-webkit-scrollbar { height: 4px; }
-  .popular-row::-webkit-scrollbar-thumb { background: var(--bg-card-hover); border-radius: 2px; }
+  /* ── Popular songs ── */
   .pop-card {
     flex-shrink: 0; scroll-snap-align: start; width: 148px;
     background: transparent; border: var(--stroke-heavy) solid transparent;
@@ -406,4 +489,65 @@
   }
 
   @keyframes shimmer { 0%,100%{opacity:0.35} 50%{opacity:0.75} }
+
+  /* ── Responsive ── */
+  /* En ventanas angostas los Destacados dejan de comprimirse y pasan a scroll
+     horizontal, igual que Géneros y Canciones populares. */
+  @media (max-width: 1024px) {
+    .featured-row {
+      display: flex;
+      gap: 0.9rem;
+      overflow-x: auto;
+      scroll-snap-type: x mandatory;
+      scrollbar-width: none;
+      padding-bottom: 0.25rem;
+    }
+    .featured-row::-webkit-scrollbar { display: none; }
+    .feat-card,
+    .feat-skeleton {
+      flex: 0 0 80%;
+      max-width: 320px;
+      scroll-snap-align: start;
+    }
+  }
+
+  @media (max-width: 768px) {
+    .home-view { padding-bottom: 1.5rem; }
+    .topbar { display: none; }
+    .mobile-header {
+      display: flex; flex-direction: column; gap: 0.75rem;
+      padding: 1rem 1rem 0.75rem;
+      position: sticky; top: 0; z-index: 5;
+      background: var(--bg-primary);
+    }
+    .mh-logo { display: flex; align-items: center; gap: 0.6rem; }
+    .mh-logo-box {
+      width: 40px; height: 40px; border-radius: var(--radius-sm);
+      display: flex; align-items: center; justify-content: center;
+      background: var(--accent); color: var(--on-accent);
+      border: var(--stroke-heavy) solid var(--stroke);
+      box-shadow: var(--shadow-accent);
+    }
+    .mh-name { display: flex; flex-direction: column; line-height: 1; gap: 3px; }
+    .mh-name b { font-size: 1rem; font-weight: 900; letter-spacing: 0.08em; color: var(--text-primary); }
+    .mh-name span { font-size: 0.6rem; color: var(--text-muted); font-weight: 700; }
+    .mh-search {
+      display: flex; align-items: center; gap: 0.5rem;
+      width: 100%; padding: 0.65rem 0.9rem;
+      background: var(--bg-card);
+      border: var(--stroke-heavy) solid var(--stroke);
+      border-radius: var(--radius-pill);
+      box-shadow: var(--shadow-sm);
+      color: var(--text-muted); font-family: inherit; font-size: 0.85rem;
+      cursor: pointer; text-align: left;
+    }
+    .mh-search span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  }
+  @media (max-width: 560px) {
+    .topbar { padding: 1.25rem 1rem 0.75rem; }
+    .page-title { font-size: 2.4rem; }
+    .section { padding-left: 1rem; padding-right: 1rem; }
+    .feat-card,
+    .feat-skeleton { flex-basis: 88%; }
+  }
 </style>

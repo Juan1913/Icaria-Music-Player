@@ -820,13 +820,13 @@ pub async fn get_album(browse_id: &str) -> Result<AlbumDetail> {
     // try a VL browse which puts tracks in secondaryContents.
     if detail.tracks.is_empty() {
         let playlist_id = ytm_playlist_id_from_browse(browse_id, &data);
-        eprintln!("[Groove] no tracks from MPREb browse, trying VL browse: {}", playlist_id);
+        eprintln!("[Icaria] no tracks from MPREb browse, trying VL browse: {}", playlist_id);
         match ytm_vl_playlist_tracks(&playlist_id).await {
             Ok(tracks) if !tracks.is_empty() => {
                 detail.tracks = tracks;
             }
             _ => {
-                eprintln!("[Groove] VL browse empty, trying Invidious: {}", playlist_id);
+                eprintln!("[Icaria] VL browse empty, trying Invidious: {}", playlist_id);
                 if let Ok(tracks) = invidious_playlist_tracks(&playlist_id).await {
                     detail.tracks = tracks;
                 }
@@ -931,7 +931,7 @@ async fn ytm_vl_playlist_tracks(playlist_id: &str) -> Result<Vec<Track>> {
     if tracks.is_empty() {
         scan_all_for_tracks(&data["contents"], &mut tracks);
     }
-    eprintln!("[Groove] VL browse {} → {} tracks", playlist_id, tracks.len());
+    eprintln!("[Icaria] VL browse {} → {} tracks", playlist_id, tracks.len());
     if tracks.is_empty() {
         Err(anyhow!("no tracks in VL browse for {}", playlist_id))
     } else {
@@ -1141,8 +1141,8 @@ fn parse_album_detail(data: &Value) -> Result<AlbumDetail> {
     // Log all top-level keys and header keys for diagnostics
     let top_keys: Vec<String> = data.as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
     let all_header_keys: Vec<String> = data["header"].as_object().map(|o| o.keys().cloned().collect()).unwrap_or_default();
-    eprintln!("[Groove] album top-level keys: {:?}", top_keys);
-    eprintln!("[Groove] album header keys: {:?}", all_header_keys);
+    eprintln!("[Icaria] album top-level keys: {:?}", top_keys);
+    eprintln!("[Icaria] album header keys: {:?}", all_header_keys);
 
     // Which key matched (for debug logging)
     let mut matched_key = "";
@@ -1157,7 +1157,7 @@ fn parse_album_detail(data: &Value) -> Result<AlbumDetail> {
 
     let (title, artist, year, thumbnail, description) = match h {
         Some(h) => {
-            eprintln!("[Groove] album header matched: {:?}", matched_key);
+            eprintln!("[Icaria] album header matched: {:?}", matched_key);
             header_extract(h)
         }
         None => (String::new(), String::new(), None, None, None),
@@ -1191,7 +1191,7 @@ fn parse_album_detail(data: &Value) -> Result<AlbumDetail> {
 
     collect_album_tracks(data, &mut tracks);
 
-    eprintln!("[Groove] album tracks found: {}", tracks.len());
+    eprintln!("[Icaria] album tracks found: {}", tracks.len());
 
     Ok(AlbumDetail {
         title,
@@ -1235,15 +1235,133 @@ pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
         }
     }
 
-    // Race all Piped instances (parallel) against yt-dlp.
-    // First to succeed wins; if both fail, yt-dlp error is returned.
-    let url = race_stream(video_id).await?;
+    // InnerTube primero (única vía viable en Android). Si falla, se prueban las
+    // otras fuentes; y si todo falla, el error muestra el motivo REAL de InnerTube.
+    let url = match innertube_stream(video_id).await {
+        Ok(u) => u,
+        Err(it_err) => {
+            eprintln!("[Icaria] InnerTube falló: {}", it_err);
+            match race_stream(video_id).await {
+                Ok(u) => u,
+                Err(_) => return Err(anyhow!("No se pudo obtener el audio. InnerTube: {}", it_err)),
+            }
+        }
+    };
 
     let mut cache = STREAM_CACHE.lock().unwrap();
     cache.retain(|_, (_, ts)| ts.elapsed() < STREAM_TTL);
     cache.insert(video_id.to_string(), (url.clone(), Instant::now()));
 
     Ok(StreamUrl { url, mime_type: None })
+}
+
+// Clave pública InnerTube de YouTube.
+const INNERTUBE_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
+
+// Clientes que devuelven URLs de audio directas (sin PO token ni descifrado).
+// Se prueban en orden porque distintos clientes funcionan para distintos videos.
+// (clientName, clientVersion, X-YouTube-Client-Name, User-Agent, campos extra)
+fn innertube_clients() -> Vec<(&'static str, &'static str, &'static str, &'static str, Value)> {
+    vec![
+        ("IOS", "20.10.4", "5",
+         "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)",
+         json!({"deviceMake":"Apple","deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"18.3.2.22D82"})),
+        ("ANDROID", "20.10.38", "3",
+         "com.google.android.youtube/20.10.38 (Linux; U; Android 14) gzip",
+         json!({"androidSdkVersion":34})),
+        ("ANDROID_VR", "1.60.19", "28",
+         "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12; GB) gzip",
+         json!({"deviceModel":"Quest 3","androidSdkVersion":32})),
+    ]
+}
+
+/// Extrae la URL de audio vía la API InnerTube de YouTube, probando varios
+/// clientes hasta que uno devuelve un stream reproducible. Sin yt-dlp → funciona
+/// en Android y escritorio.
+async fn innertube_stream(video_id: &str) -> Result<String> {
+    let client = Client::builder()
+        .timeout(Duration::from_secs(8))
+        .build()?;
+    let url = format!("https://www.youtube.com/youtubei/v1/player?key={}", INNERTUBE_KEY);
+
+    let mut last_reason = String::new();
+
+    for (name, ver, cn, ua, extra) in innertube_clients() {
+        let mut client_ctx = json!({
+            "clientName": name,
+            "clientVersion": ver,
+            "hl": "en",
+            "gl": "US"
+        });
+        if let (Some(obj), Some(ex)) = (client_ctx.as_object_mut(), extra.as_object()) {
+            for (k, v) in ex { obj.insert(k.clone(), v.clone()); }
+        }
+        let body = json!({ "videoId": video_id, "context": { "client": client_ctx } });
+
+        let resp = match client
+            .post(&url)
+            .header("Content-Type", "application/json")
+            .header("User-Agent", ua)
+            .header("X-YouTube-Client-Name", cn)
+            .header("X-YouTube-Client-Version", ver)
+            .json(&body)
+            .send()
+            .await
+        {
+            Ok(r) if r.status().is_success() => r,
+            _ => continue,
+        };
+
+        let data: Value = match resp.json().await { Ok(d) => d, Err(_) => continue };
+
+        let status = data["playabilityStatus"]["status"].as_str().unwrap_or("");
+        if status != "OK" {
+            last_reason = data["playabilityStatus"]["reason"]
+                .as_str().unwrap_or(status).to_string();
+            eprintln!("[Icaria] innertube {} → {} ({})", name, status, last_reason);
+            continue;
+        }
+
+        if let Some(u) = pick_innertube_audio_url(&data) {
+            eprintln!("[Icaria] innertube OK vía {}", name);
+            return Ok(u);
+        }
+    }
+
+    Err(anyhow!(
+        "innertube: sin stream ({})",
+        if last_reason.is_empty() { "todos los clientes fallaron".to_string() } else { last_reason }
+    ))
+}
+
+fn pick_innertube_audio_url(data: &Value) -> Option<String> {
+    let formats = data["streamingData"]["adaptiveFormats"].as_array()?;
+
+    // Preferido: itag 140 (m4a/aac 128 kbps) — ideal para WebKit/WebView
+    for f in formats {
+        if f["itag"].as_i64() == Some(140) {
+            if let Some(u) = f["url"].as_str() {
+                if !u.is_empty() { return Some(u.to_string()); }
+            }
+        }
+    }
+    // Cualquier audio mp4
+    for f in formats {
+        if f["mimeType"].as_str().unwrap_or("").starts_with("audio/mp4") {
+            if let Some(u) = f["url"].as_str() {
+                if !u.is_empty() { return Some(u.to_string()); }
+            }
+        }
+    }
+    // Cualquier audio
+    for f in formats {
+        if f["mimeType"].as_str().unwrap_or("").starts_with("audio/") {
+            if let Some(u) = f["url"].as_str() {
+                if !u.is_empty() { return Some(u.to_string()); }
+            }
+        }
+    }
+    None
 }
 
 async fn race_stream(video_id: &str) -> Result<String> {
@@ -1254,11 +1372,11 @@ async fn race_stream(video_id: &str) -> Result<String> {
     let vid3 = video_id.to_string();
 
     let futs: Vec<futures_util::future::BoxFuture<'static, Result<String>>> = vec![
-        // Invidious: pre-decoded n-sig URLs, ~300ms if any instance alive
+        // Invidious: URLs pre-descifradas, ~300ms si hay instancia viva
         Box::pin(async move { invidious_stream_parallel(&vid1).await }),
-        // Piped: also pre-decoded, but most instances dead lately
+        // Piped: también pre-descifradas, pero casi todas caídas
         Box::pin(async move { piped_stream_parallel(&vid2).await }),
-        // Reliable fallback: yt-dlp (~2s)
+        // Respaldo (solo escritorio): yt-dlp (~2s). En Android no existe y falla rápido.
         Box::pin(async move { ytdlp_stream_raw(&vid3).await }),
     ];
 

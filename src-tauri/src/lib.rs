@@ -37,5 +37,5 @@ pub fn run() {
             commands::get_album_raw,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Harmonia");
+        .expect("error while running Icaria");
 }

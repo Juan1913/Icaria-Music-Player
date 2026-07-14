@@ -3,6 +3,7 @@
   import { player } from '$lib/stores/player';
   import TrackCard from '$lib/components/TrackCard.svelte';
   import { resolveStream, preloadStream } from '$lib/api';
+  import { imgFallback } from '$lib/imgFallback';
 
   let view = $state<'library' | 'playlist'>('library');
   let activePlaylist = $state<Playlist | null>(null);
@@ -101,7 +102,7 @@
               {#if pl.tracks.some(t => t.thumbnail)}
                 <div class="art-mosaic">
                   {#each pl.tracks.filter(t => t.thumbnail).slice(0,4) as t}
-                    <img src={t.thumbnail} alt="" />
+                    <img src={t.thumbnail} alt="" use:imgFallback />
                   {/each}
                 </div>
               {:else}

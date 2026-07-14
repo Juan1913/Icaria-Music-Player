@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Track } from '$lib/stores/player';
   import { player } from '$lib/stores/player';
-  import { resolveStream } from '$lib/api';
+  import { resolveStream, preloadStream } from '$lib/api';
   import PlaylistModal from './PlaylistModal.svelte';
 
   interface Props {
@@ -49,6 +49,8 @@
   role="button"
   tabindex="0"
   onclick={play}
+  onmouseenter={() => preloadStream(track)}
+  onfocus={() => preloadStream(track)}
   onkeydown={e => e.key === 'Enter' && play()}
 >
   <!-- Art -->
@@ -58,7 +60,7 @@
     {:else}
       <div class="art art-empty">
         <div class="empty-dots"></div>
-        <span class="empty-g">G</span>
+        <span class="empty-g">I</span>
       </div>
     {/if}
     <div class="art-overlay">

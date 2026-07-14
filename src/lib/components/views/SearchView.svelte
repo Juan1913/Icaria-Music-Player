@@ -4,6 +4,7 @@
   import type { Track, Artist, Album, SearchResult } from '$lib/stores/player';
   import { player } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
+  import { imgFallback } from '$lib/imgFallback';
 
   import { onMount } from 'svelte';
 
@@ -152,7 +153,7 @@
             {#each allArtists as artist (artist.id)}
               <button class="artist-card" onclick={() => openArtist(artist)}>
                 {#if artist.thumbnail}
-                  <img class="artist-thumb" src={artist.thumbnail} alt="" loading="lazy" />
+                  <img class="artist-thumb" src={artist.thumbnail} alt="" loading="lazy" use:imgFallback />
                 {:else}
                   <div class="artist-thumb artist-thumb-empty">♪</div>
                 {/if}
@@ -176,7 +177,7 @@
             {#each allAlbums as album (album.id)}
               <button class="album-card" onclick={() => openAlbum(album)}>
                 {#if album.thumbnail}
-                  <img class="album-art" src={album.thumbnail} alt="" loading="lazy" />
+                  <img class="album-art" src={album.thumbnail} alt="" loading="lazy" use:imgFallback />
                 {:else}
                   <div class="album-art album-art-empty">♪</div>
                 {/if}

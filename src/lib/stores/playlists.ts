@@ -8,11 +8,20 @@ export interface Playlist {
   createdAt: number;
 }
 
-const STORAGE_KEY = 'harmonia_playlists';
+const STORAGE_KEY = 'icaria_playlists';
+const LEGACY_KEY = 'harmonia_playlists';
 
 function load(): Playlist[] {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    let raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      const legacy = localStorage.getItem(LEGACY_KEY);
+      if (legacy) {
+        localStorage.setItem(STORAGE_KEY, legacy);
+        localStorage.removeItem(LEGACY_KEY);
+        raw = legacy;
+      }
+    }
     return raw ? JSON.parse(raw) : [];
   } catch {
     return [];

@@ -3,6 +3,7 @@
   import { player } from '$lib/stores/player';
   import type { ArtistDetail, Track, Album } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
+  import { imgFallback } from '$lib/imgFallback';
   import TrackCard from '$lib/components/TrackCard.svelte';
 
   interface Props {
@@ -69,7 +70,7 @@
 
     <div class="artist-hero">
       {#if detail.thumbnail}
-        <img class="artist-art" src={detail.thumbnail} alt="" />
+        <img class="artist-art" src={detail.thumbnail} alt="" use:imgFallback />
       {:else}
         <div class="artist-art artist-art-empty">[♪]</div>
       {/if}
@@ -111,7 +112,7 @@
           {#each detail.albums as album (album.id)}
             <button class="album-card" onclick={() => openAlbum(album)}>
               {#if album.thumbnail}
-                <img class="album-art" src={album.thumbnail} alt="" loading="lazy" />
+                <img class="album-art" src={album.thumbnail} alt="" loading="lazy" use:imgFallback />
               {:else}
                 <div class="album-art album-art-empty">[♪]</div>
               {/if}

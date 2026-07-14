@@ -9,6 +9,7 @@
   import SettingsView from '$lib/components/views/SettingsView.svelte';
   import ArtistView from '$lib/components/views/ArtistView.svelte';
   import AlbumView from '$lib/components/views/AlbumView.svelte';
+  import FavoritesView from '$lib/components/views/FavoritesView.svelte';
   import { settings } from '$lib/stores/settings';
   import { nav } from '$lib/stores/nav';
   import { theme } from '$lib/stores/theme';
@@ -64,6 +65,8 @@
       <AlbumView browseId={albumBrowseId} />
     {:else if activePage === 'nowplaying'}
       <NowPlayingView />
+    {:else if activePage === 'favorites'}
+      <FavoritesView />
     {:else if activePage === 'library'}
       <LibraryView />
     {:else if activePage === 'settings'}
@@ -83,8 +86,8 @@
 
 <style>
   /* ═══════════════════════════════════════════
-     GROOVE DESIGN SYSTEM — 4 THEMES
-     paper · dracula · gruvbox · jamaica
+     ICARIA DESIGN SYSTEM — 5 THEMES
+     paper · dracula · gruvbox · jamaica · palestina
      ═══════════════════════════════════════════ */
 
   /* ── SHARED CONSTANTS ── */
@@ -245,6 +248,41 @@
     --dot-color:     rgba(0,0,0,0.07);
   }
 
+  /* ══════════════════════════════════════
+     PALESTINA — bandera: verde + rojo + negro + blanco
+     ══════════════════════════════════════ */
+  :global([data-theme="palestina"]) {
+    --bg-primary:    #f4f2ec;
+    --bg-sidebar:    #e9e6dd;
+    --bg-card:       #ffffff;
+    --bg-card-hover: #e4e0d5;
+    --text-primary:  #0d0d0d;
+    --text-muted:    #4a4a4a;
+    --text-dim:      #8a8a8a;
+    --accent:        #007A3D;
+    --accent-dim:    #005c2e;
+    --accent-2:      #CE1126;
+    --accent-2-dim:  #a50d1e;
+    --accent-3:      #CE1126;
+    --accent-3-dim:  #a50d1e;
+    --stroke:        #0d0d0d;
+    --shadow:        4px 4px 0 #0d0d0d;
+    --shadow-sm:     3px 3px 0 #0d0d0d;
+    --shadow-lg:     6px 6px 0 #0d0d0d;
+    --shadow-accent: 4px 4px 0 #005c2e;
+    /* legacy */
+    --gb-bg-hard:    #e9e6dd; --gb-bg0: #f4f2ec; --gb-bg1: #e0dccf;
+    --gb-bg2:        #e0dccf; --gb-bg3: #c9c4b4;
+    --gb-fg0:        #0d0d0d; --gb-fg:  #0d0d0d; --gb-fg2: #2a2a2a;
+    --gb-fg3:        #4a4a4a; --gb-gray:#7a7a72;
+    --gb-yellow:     #007A3D; --gb-yellow-dim:#005c2e;
+    --gb-orange:     #CE1126; --gb-orange-dim:#a50d1e;
+    --gb-red:        #CE1126; --gb-red-dim:#a50d1e;
+    --gb-green:      #007A3D; --gb-green-dim:#005c2e;
+    --gb-blue:       #007A3D; --gb-purple:#007A3D; --gb-aqua:#009B67;
+    --dot-color:     rgba(0,0,0,0.07);
+  }
+
   :global(*) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) {
     overflow: hidden; background: var(--bg-primary);
@@ -252,13 +290,18 @@
     background-size: 22px 22px;
   }
 
-  /* Scrollbar */
-  :global(::-webkit-scrollbar) { width: 5px; }
-  :global(::-webkit-scrollbar-track) { background: var(--bg-sidebar); }
-  :global(::-webkit-scrollbar-thumb) {
-    background: var(--paper-5, var(--bg-card-hover));
-    border-radius: 10px;
+  /* Scrollbar — neo-brutalista: thumb con borde negro grueso, cuadrado */
+  :global(::-webkit-scrollbar) { width: 14px; height: 14px; }
+  :global(::-webkit-scrollbar-track) {
+    background: var(--bg-sidebar);
   }
+  :global(::-webkit-scrollbar-thumb) {
+    background: var(--accent);
+    border: var(--stroke-w) solid var(--stroke);
+    border-radius: 3px;
+  }
+  :global(::-webkit-scrollbar-thumb:hover) { background: var(--accent-dim); }
+  :global(::-webkit-scrollbar-corner) { background: var(--bg-sidebar); }
 
   :global(button) { cursor: pointer; font-family: inherit; font-size: inherit; }
 

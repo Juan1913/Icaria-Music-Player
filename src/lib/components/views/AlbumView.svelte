@@ -3,6 +3,7 @@
   import { player } from '$lib/stores/player';
   import type { AlbumDetail, Track } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
+  import { imgFallback } from '$lib/imgFallback';
   import TrackCard from '$lib/components/TrackCard.svelte';
 
   interface Props {
@@ -67,7 +68,7 @@
 
     <div class="album-hero">
       {#if detail.thumbnail}
-        <img class="album-art" src={detail.thumbnail} alt="" />
+        <img class="album-art" src={detail.thumbnail} alt="" use:imgFallback />
       {:else}
         <div class="album-art album-art-empty">[♪]</div>
       {/if}
