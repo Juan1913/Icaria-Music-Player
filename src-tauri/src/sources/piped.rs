@@ -1235,15 +1235,15 @@ pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
         }
     }
 
-    // InnerTube primero (única vía viable en Android). Si falla, se prueban las
-    // otras fuentes; y si todo falla, el error muestra el motivo REAL de InnerTube.
-    let url = match innertube_stream(video_id).await {
+    // race_stream primero (Invidious/Piped/yt-dlp en paralelo, rápido en escritorio).
+    // Si falla (p.ej. Android sin yt-dlp), InnerTube como respaldo.
+    let url = match race_stream(video_id).await {
         Ok(u) => u,
-        Err(it_err) => {
-            eprintln!("[Icaria] InnerTube falló: {}", it_err);
-            match race_stream(video_id).await {
+        Err(race_err) => {
+            eprintln!("[Icaria] race_stream falló: {}", race_err);
+            match innertube_stream(video_id).await {
                 Ok(u) => u,
-                Err(_) => return Err(anyhow!("No se pudo obtener el audio. InnerTube: {}", it_err)),
+                Err(it_err) => return Err(anyhow!("No se pudo obtener el audio. InnerTube: {}", it_err)),
             }
         }
     };
