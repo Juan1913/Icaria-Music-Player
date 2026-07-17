@@ -11,6 +11,24 @@
     return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
   }
 
+  // Scroll suave propio (con easing) para la letra: más agradable que el
+  // "smooth" nativo del WebView, que puede sentirse brusco o poco fluido.
+  let scrollAnimFrame = 0;
+  function smoothScrollTo(el: HTMLElement, target: number, duration = 700) {
+    cancelAnimationFrame(scrollAnimFrame);
+    const start = el.scrollTop;
+    const delta = target - start;
+    if (Math.abs(delta) < 1) return;
+    const startTime = performance.now();
+    const easeInOutQuad = (t: number) => (t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2);
+    function step(now: number) {
+      const t = Math.min(1, (now - startTime) / duration);
+      el.scrollTop = start + delta * easeInOutQuad(t);
+      if (t < 1) scrollAnimFrame = requestAnimationFrame(step);
+    }
+    scrollAnimFrame = requestAnimationFrame(step);
+  }
+
   let showLyrics = $state(false);
   let lyrics = $state<{ time: number; text: string }[]>([]);
   let lyricsLoading = $state(false);
@@ -96,8 +114,12 @@
     }
     if (idx !== activeLine) {
       activeLine = idx;
-      const el = lyricsContainer?.querySelector<HTMLElement>('[data-active="true"]');
-      el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const container = lyricsContainer?.querySelector<HTMLElement>('.lyrics-lines');
+      const el = container?.querySelector<HTMLElement>('[data-active="true"]');
+      if (container && el) {
+        const target = el.offsetTop - container.clientHeight / 2 + el.clientHeight / 2;
+        smoothScrollTo(container, target);
+      }
     }
   });
 
@@ -205,12 +227,7 @@
                 <div class="lyrics-lines">
                   {#each lyrics as line, i}
                     {#if line.text}
-                      <p
-                        class="lyric-line"
-                        class:active={i === activeLine}
-                        class:past={i < activeLine}
-                        data-active={i === activeLine}
-                      >{line.text}</p>
+                      <p class="lyric-line" data-active={i === activeLine}>{line.text}</p>
                     {:else}
                       <p class="lyric-break"></p>
                     {/if}
@@ -593,13 +610,8 @@
   }
   .lyrics-lines::-webkit-scrollbar { display: none; }
   .lyric-line {
-    font-size: 1.2rem; font-weight: 700; color: var(--text-dim);
-    line-height: 1.55; opacity: 0.6;
-    transition: color 0.25s, font-size 0.25s, opacity 0.25s;
-  }
-  .lyric-line.past { color: var(--text-muted); opacity: 0.45; }
-  .lyric-line.active {
-    color: var(--accent); font-size: 1.45rem; font-weight: 900; opacity: 1;
+    font-size: 1.25rem; font-weight: 700; color: var(--text-primary);
+    line-height: 1.6; opacity: 0.85;
   }
   .lyric-break { height: 0.8rem; }
 

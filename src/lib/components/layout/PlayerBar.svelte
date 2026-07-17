@@ -4,7 +4,7 @@
   import { nav } from '$lib/stores/nav';
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
-  import { playNext as handleNext, playPrev as handlePrev, playRadio, seekRequest } from '$lib/playback';
+  import { playNext as handleNext, playPrev as handlePrev, playRadio, seekRequest, streamAndPlay } from '$lib/playback';
 
   // ── Media Session: controles en pantalla de bloqueo / notificación (Android/desktop) ──
   onMount(() => {
@@ -98,8 +98,14 @@
     seekRequest.set(null);
   });
 
+  let audioErrorTrackId: string | null = null;
+  let audioErrorRetries = 0;
+  const MAX_AUDIO_RETRIES = 2;
+
   function onCanPlay() {
     player.setLoading(false);
+    audioErrorTrackId = null;
+    audioErrorRetries = 0;
     if (pendingPlay && audioEl) {
       pendingPlay = false;
       audioEl.play().catch(() => {});
@@ -165,7 +171,30 @@
   onloadedmetadata={onLoadedMetadata}
   oncanplay={onCanPlay}
   onended={onEnded}
-  onerror={() => { if ($player.streamUrl) player.setError('STREAM ERROR'); }}
+  onerror={() => {
+    if (!$player.streamUrl) return;
+    const err = audioEl?.error;
+    const codeNames: Record<number, string> = {
+      1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED',
+    };
+    const codeName = err ? (codeNames[err.code] ?? `CODE_${err.code}`) : 'UNKNOWN';
+    console.error('[Icaria] audio error:', codeName, err?.message || '(sin mensaje)', 'url:', $player.streamUrl);
+
+    const track = $player.currentTrack;
+    if (track) {
+      if (audioErrorTrackId !== track.id) { audioErrorTrackId = track.id; audioErrorRetries = 0; }
+      // Muchos fallos de YouTube son intermitentes (anti-bot/rate-limit): re-resolver
+      // la misma pista antes de mostrar el error suele recuperarla sin intervención.
+      if (audioErrorRetries < MAX_AUDIO_RETRIES) {
+        audioErrorRetries++;
+        setTimeout(() => {
+          if ($player.currentTrack?.id === track.id) streamAndPlay(track);
+        }, 700 * audioErrorRetries);
+        return;
+      }
+    }
+    player.setError(`STREAM ERROR (${codeName})`);
+  }}
   preload="auto"
 ></audio>
 

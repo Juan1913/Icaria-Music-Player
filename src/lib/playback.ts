@@ -20,12 +20,32 @@ export function seek(fraction: number): void {
  * Orquestación compartida por la PlayerBar, la vista Now Playing y las listas
  * de pistas, para no duplicar el patrón setTrackLoading → resolveStream → setStreamUrl.
  */
-export async function streamAndPlay(track: Track): Promise<void> {
-  player.setTrackLoading(track);
+const MAX_RESOLVE_RETRIES = 2;
+
+// Identificador del intento de reproducción vigente. Cada llamada "fresca" a
+// streamAndPlay (desde fuera) lo incrementa; solo el intento con el id más
+// reciente puede escribir en el store, así un reintento viejo que resuelve
+// tarde no pisa un éxito posterior (evita el falso "STREAM ERROR" cuando en
+// realidad ya está sonando).
+let playRequestId = 0;
+
+export async function streamAndPlay(track: Track, attempt = 0, requestId?: number): Promise<void> {
+  const myId = requestId ?? ++playRequestId;
+  if (attempt === 0) player.setTrackLoading(track);
   try {
     const stream = await resolveStream(track);
+    if (myId !== playRequestId) return; // superado por un intento más nuevo
     player.setStreamUrl(stream.url);
   } catch (e) {
+    if (myId !== playRequestId) return;
+    // Los fallos de YouTube (LOGIN_REQUIRED, etc.) suelen ser intermitentes:
+    // reintentar la misma pista antes de rendirse evita falsos "no disponible".
+    if (attempt < MAX_RESOLVE_RETRIES && get(player).currentTrack?.id === track.id) {
+      await new Promise(r => setTimeout(r, 700 * (attempt + 1)));
+      if (myId !== playRequestId || get(player).currentTrack?.id !== track.id) return;
+      return streamAndPlay(track, attempt + 1, myId);
+    }
+    if (myId !== playRequestId) return;
     player.setError(`ERROR: ${e}`);
   }
 }
