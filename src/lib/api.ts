@@ -34,6 +34,11 @@ function evictExpired() {
   }
 }
 
+/** Manda un mensaje de diagnóstico a la terminal del backend (además de la consola del WebView). */
+export function logClientError(message: string): void {
+  invoke('log_client_error', { message }).catch(() => {});
+}
+
 export async function searchYouTube(query: string, max = 20): Promise<Track[]> {
   const results = await invoke<any[]>('search_youtube', { query, max });
   return results.map(normalizeTrack);
@@ -186,4 +191,18 @@ export function hasPreloaded(track: Track): boolean {
 export function clearStreamCache(): void {
   cache.clear();
   timestamps.clear();
+}
+
+/**
+ * Descarta la URL cacheada de una pista (local y en el backend) tras un
+ * fallo real de reproducción (p. ej. 403 del CDN), para que el próximo
+ * intento la resuelva de nuevo en vez de repetir la misma URL rota.
+ */
+export function invalidateStream(track: Track): void {
+  const key = cacheKey(track);
+  cache.delete(key);
+  timestamps.delete(key);
+  if (track.source === 'youtube') {
+    invoke('invalidate_youtube_stream', { videoId: track.streamId }).catch(() => {});
+  }
 }

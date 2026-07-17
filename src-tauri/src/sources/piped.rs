@@ -1225,6 +1225,13 @@ const INVIDIOUS_INSTANCES: &[&str] = &[
     "invidious.fdn.fr",
 ];
 
+/// Descarta una URL cacheada que resultó estar rota (p. ej. 403 del CDN al
+/// reproducirla), para que el próximo intento la vuelva a resolver en vez de
+/// repetir la misma URL muerta durante los 25 min de TTL.
+pub fn invalidate_stream(video_id: &str) {
+    STREAM_CACHE.lock().unwrap().remove(video_id);
+}
+
 pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
     {
         let cache = STREAM_CACHE.lock().unwrap();

@@ -35,6 +35,8 @@ pub fn run() {
             commands::get_bandcamp_stream,
             commands::get_radio,
             commands::get_album_raw,
+            commands::log_client_error,
+            commands::invalidate_youtube_stream,
         ])
         .run(tauri::generate_context!())
         .expect("error while running Icaria");

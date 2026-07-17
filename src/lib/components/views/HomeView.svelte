@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { searchYouTubeAll, resolveStream, getRadioTracks, preloadStream } from '$lib/api';
+  import { searchYouTubeAll, getRadioTracks, preloadStream } from '$lib/api';
   import { player } from '$lib/stores/player';
   import type { Track } from '$lib/stores/player';
   import { nav } from '$lib/stores/nav';
@@ -7,6 +7,7 @@
   import { imgFallback } from '$lib/imgFallback';
   import HScroll from '$lib/components/HScroll.svelte';
   import { get } from 'svelte/store';
+  import { streamAndPlay } from '$lib/playback';
 
   const CATEGORIES = [
     { id: 'parati',     label: 'Para ti'         },
@@ -124,12 +125,10 @@
   });
 
   async function playTrack(track: Track) {
-    player.setTrackLoading(track);
-    player.addToQueue(track);
-    try {
-      const stream = await resolveStream(track);
-      player.setStreamUrl(stream.url);
-    } catch (e) { player.setError(`ERROR: ${e}`); }
+    // Pista suelta: la cola es solo esta pista, para que al terminar
+    // respete el autoplay en vez de "seguir" con la cola anterior.
+    player.setQueue([track], 0);
+    await streamAndPlay(track);
   }
 
   function isActive(t: Track) {

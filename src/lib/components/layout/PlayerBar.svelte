@@ -5,6 +5,7 @@
   import { get } from 'svelte/store';
   import { onMount } from 'svelte';
   import { playNext as handleNext, playPrev as handlePrev, playRadio, seekRequest, streamAndPlay } from '$lib/playback';
+  import { logClientError, invalidateStream } from '$lib/api';
 
   // ── Media Session: controles en pantalla de bloqueo / notificación (Android/desktop) ──
   onMount(() => {
@@ -131,6 +132,13 @@
       return;
     }
     const s = get(player);
+    // Con autoplay apagado, no sigue nada solo al terminar la pista (álbum,
+    // playlist, cola, tema suelto, etc.) — salvo que el usuario haya pedido
+    // "repetir todo" explícitamente. Chequeo síncrono, sin costo de rendimiento.
+    if (!s.autoplay && s.repeat !== 'all') {
+      player.setPlaying(false);
+      return;
+    }
     const hasNext = s.queue.length > 0 &&
       ((s.shuffle && s.queue.length > 1) || s.queueIndex < s.queue.length - 1 || s.repeat === 'all');
     if (hasNext) {
@@ -178,15 +186,20 @@
       1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED',
     };
     const codeName = err ? (codeNames[err.code] ?? `CODE_${err.code}`) : 'UNKNOWN';
-    console.error('[Icaria] audio error:', codeName, err?.message || '(sin mensaje)', 'url:', $player.streamUrl);
+    const detail = `audio error: ${codeName} ${err?.message || '(sin mensaje)'} url: ${$player.streamUrl}`;
+    console.error('[Icaria]', detail);
+    logClientError(detail);
 
     const track = $player.currentTrack;
     if (track) {
       if (audioErrorTrackId !== track.id) { audioErrorTrackId = track.id; audioErrorRetries = 0; }
       // Muchos fallos de YouTube son intermitentes (anti-bot/rate-limit): re-resolver
       // la misma pista antes de mostrar el error suele recuperarla sin intervención.
+      // Se descarta la URL cacheada primero: si quedó una URL rota (p. ej. 403 del
+      // CDN) en caché, reintentar sin invalidar solo repetiría la misma URL muerta.
       if (audioErrorRetries < MAX_AUDIO_RETRIES) {
         audioErrorRetries++;
+        invalidateStream(track);
         setTimeout(() => {
           if ($player.currentTrack?.id === track.id) streamAndPlay(track);
         }, 700 * audioErrorRetries);

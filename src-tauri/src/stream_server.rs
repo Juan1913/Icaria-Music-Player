@@ -101,7 +101,7 @@ async fn handle(mut socket: tokio::net::TcpStream, store: UrlMap) {
         }
     };
 
-    proxy_to_youtube(&mut socket, &yt_url, range.as_deref(), is_head).await;
+    proxy_to_youtube(&mut socket, &stream_id, &yt_url, range.as_deref(), is_head).await;
 }
 
 fn extract_stream_id(req: &str) -> Option<String> {
@@ -118,6 +118,7 @@ fn extract_stream_id(req: &str) -> Option<String> {
 
 async fn proxy_to_youtube(
     socket: &mut tokio::net::TcpStream,
+    stream_id: &str,
     yt_url: &str,
     range: Option<&str>,
     is_head: bool,
@@ -198,6 +199,26 @@ async fn proxy_to_youtube(
         head += "Transfer-Encoding: chunked\r\n";
     }
     head += "\r\n";
+
+    eprintln!(
+        "[stream_server] id={} range={:?} → upstream {} {} content_type={} content_length={:?}",
+        stream_id, range, status, reason, content_type, content_length
+    );
+
+    if !resp.status().is_success() {
+        let body = resp.bytes().await.unwrap_or_default();
+        let preview_len = body.len().min(300);
+        eprintln!(
+            "[stream_server] id={} upstream error body preview: {}",
+            stream_id,
+            String::from_utf8_lossy(&body[..preview_len])
+        );
+        let _ = socket.write_all(head.as_bytes()).await;
+        if !is_head {
+            let _ = socket.write_all(&body).await;
+        }
+        return;
+    }
 
     if is_head {
         let _ = socket.write_all(head.as_bytes()).await;

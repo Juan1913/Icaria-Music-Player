@@ -1,7 +1,8 @@
 <script lang="ts">
   import type { Track } from '$lib/stores/player';
   import { player } from '$lib/stores/player';
-  import { resolveStream, preloadStream } from '$lib/api';
+  import { preloadStream } from '$lib/api';
+  import { streamAndPlay } from '$lib/playback';
   import PlaylistModal from './PlaylistModal.svelte';
 
   interface Props {
@@ -26,13 +27,12 @@
     if (loading) return;
     if (onPlay) { onPlay(); return; }
     loading = true;
-    player.setTrackLoading(track);
-    player.addToQueue(track);
+    // Pista suelta (no viene de un álbum/playlist con su propio setQueue):
+    // la cola es solo esta pista, para que al terminar respete el autoplay
+    // en vez de "seguir" con lo que hubiera quedado en la cola anterior.
+    player.setQueue([track], 0);
     try {
-      const stream = await resolveStream(track);
-      player.setStreamUrl(stream.url);
-    } catch (e) {
-      player.setError(`ERROR: ${e}`);
+      await streamAndPlay(track);
     } finally {
       loading = false;
     }

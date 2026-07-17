@@ -138,3 +138,17 @@ pub async fn get_radio(video_id: String, max: Option<u32>) -> Result<Vec<Track>,
         .await
         .map_err(|e| e.to_string())
 }
+
+// Vuelca errores del lado JS (p. ej. del elemento <audio>) a la terminal del
+// backend, para no depender de abrir el inspector del WebView para verlos.
+#[tauri::command]
+pub fn log_client_error(message: String) {
+    eprintln!("[frontend] {}", message);
+}
+
+// Descarta la URL cacheada de una pista de YouTube (p. ej. tras un 403 real
+// al reproducirla), para forzar que el próximo intento la resuelva de nuevo.
+#[tauri::command]
+pub fn invalidate_youtube_stream(video_id: String) {
+    piped::invalidate_stream(&video_id);
+}
