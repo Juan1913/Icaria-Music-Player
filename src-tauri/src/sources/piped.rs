@@ -1,6 +1,6 @@
 /// YouTube source — search via YouTube Music InnerTube API (instant),
 /// stream via yt-dlp (reliable, ~2s, only called on play).
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
 use reqwest::Client;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -485,6 +485,28 @@ fn ytdlp_bin() -> String {
         return local;
     }
     "yt-dlp".to_string()
+}
+
+/// Navegador del que yt-dlp toma cookies para pasar el "confirm you're not a bot"
+/// / HTTP 429 de YouTube. Se puede forzar con ICARIA_COOKIES_BROWSER (p.ej. "chrome");
+/// si no, autodetecta un perfil existente. None si no hay ninguno.
+fn cookies_browser() -> Option<String> {
+    if let Ok(b) = std::env::var("ICARIA_COOKIES_BROWSER") {
+        let b = b.trim().to_string();
+        return if b.is_empty() { None } else { Some(b) };
+    }
+    let home = std::env::var("HOME").unwrap_or_default();
+    let candidates = [
+        ("firefox", format!("{home}/.mozilla/firefox")),
+        ("chrome", format!("{home}/.config/google-chrome")),
+        ("chromium", format!("{home}/.config/chromium")),
+        ("brave", format!("{home}/.config/BraveSoftware/Brave-Browser")),
+        ("vivaldi", format!("{home}/.config/vivaldi")),
+    ];
+    candidates
+        .into_iter()
+        .find(|(_, path)| std::path::Path::new(path).exists())
+        .map(|(name, _)| name.to_string())
 }
 
 #[derive(serde::Deserialize)]
@@ -1716,35 +1738,50 @@ async fn ytdlp_stream_raw(video_id: &str) -> Result<String> {
     let bin = ytdlp_bin();
     let url_arg = format!("https://www.youtube.com/watch?v={}", video_id);
 
-    let out = tokio::task::spawn_blocking(move || {
-        Command::new(&bin)
-            .args([
+    // Intenta primero con cookies del navegador (evita el bot-check/429 de YouTube).
+    // Si no hay navegador o el intento falla, reintenta sin cookies (no rompe equipos
+    // sin sesión de YouTube).
+    let attempts: Vec<Option<String>> = match cookies_browser() {
+        Some(b) => vec![Some(b), None],
+        None => vec![None],
+    };
+
+    let mut last_err = String::from("yt-dlp returned no URL");
+    for cookies in attempts {
+        let bin = bin.clone();
+        let url_arg = url_arg.clone();
+        let out = tokio::task::spawn_blocking(move || {
+            let mut cmd = Command::new(&bin);
+            cmd.args([
                 "-f", "140/bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio",
                 "--get-url",
                 "--quiet",
                 "--no-warnings",
                 "--no-playlist",
                 "--no-check-formats",
-                &url_arg,
-            ])
-            .output()
-    })
-    .await??;
+            ]);
+            if let Some(browser) = &cookies {
+                cmd.args(["--cookies-from-browser", browser]);
+            }
+            cmd.arg(&url_arg);
+            cmd.output()
+        })
+        .await??;
 
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(anyhow!("yt-dlp stream failed: {}", err));
+        if out.status.success() {
+            let url = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            if !url.is_empty() {
+                return Ok(url);
+            }
+            last_err = "Empty stream URL from yt-dlp".to_string();
+        } else {
+            last_err = String::from_utf8_lossy(&out.stderr).to_string();
+        }
     }
 
-    let url = String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()
-        .map(|s| s.trim().to_string())
-        .context("yt-dlp returned no URL")?;
-
-    if url.is_empty() {
-        return Err(anyhow!("Empty stream URL from yt-dlp"));
-    }
-
-    Ok(url)
+    Err(anyhow!("yt-dlp stream failed: {}", last_err))
 }
