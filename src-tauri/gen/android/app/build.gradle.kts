@@ -4,6 +4,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("rust")
+    id("com.chaquo.python")
 }
 
 val tauriProperties = Properties().apply {
@@ -23,6 +24,11 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+        // TODO: agregar armeabi-v7a/x86/x86_64 antes de un build de release real;
+        // por ahora solo arm64-v8a (el del teléfono de prueba) para iterar rápido.
+        ndk {
+            abiFilters += listOf("arm64-v8a")
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -55,6 +61,19 @@ android {
 
 rust {
     rootDirRel = "../../../"
+}
+
+// yt-dlp embebido vía Python (Chaquopy): red de seguridad para resolver
+// audio de YouTube en Android, igual que yt-dlp hace en desktop, sin
+// depender de un binario externo (que no existe en Android).
+chaquopy {
+    defaultConfig {
+        version = "3.11"
+        buildPython("/usr/bin/python3.11")
+        pip {
+            install("yt-dlp")
+        }
+    }
 }
 
 dependencies {

@@ -1229,6 +1229,45 @@ static STREAM_CACHE: LazyLock<Mutex<HashMap<String, (String, Instant)>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 const STREAM_TTL: Duration = Duration::from_secs(1500);
 
+static VISITOR_DATA: LazyLock<Mutex<Option<(String, Instant)>>> =
+    LazyLock::new(|| Mutex::new(None));
+const VISITOR_TTL: Duration = Duration::from_secs(3600);
+
+/// `visitorData`: el identificador de sesión anónima que YouTube pone en su
+/// propia home. Sin él, los clientes más nuevos de InnerTube (VISIONOS) reciben
+/// "Sign in to confirm you're not a bot"; con él responden OK. Se cachea una
+/// hora porque cuesta una descarga de ~900 KB.
+async fn visitor_data() -> Option<String> {
+    if let Some((vd, ts)) = VISITOR_DATA.lock().unwrap().as_ref() {
+        if ts.elapsed() < VISITOR_TTL {
+            return Some(vd.clone());
+        }
+    }
+
+    let client = Client::builder().timeout(Duration::from_secs(8)).build().ok()?;
+    let html = client
+        .get("https://www.youtube.com/")
+        .header("User-Agent", VISIONOS_UA)
+        .header("Accept-Language", "en-US,en;q=0.9")
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()?;
+
+    let start = html.find(r#""visitorData":""#)? + r#""visitorData":""#.len();
+    let vd = html[start..].split('"').next()?;
+    // El valor viene tal cual (percent-encoding, sin escapes JSON). Si apareciera
+    // uno, preferimos no usarlo antes que mandar basura.
+    if vd.is_empty() || vd.contains('\\') {
+        return None;
+    }
+
+    *VISITOR_DATA.lock().unwrap() = Some((vd.to_string(), Instant::now()));
+    Some(vd.to_string())
+}
+
 const PIPED_INSTANCES: &[&str] = &[
     "pipedapi.kavin.rocks",
     "pipedapi.adminforge.de",
@@ -1254,6 +1293,105 @@ pub fn invalidate_stream(video_id: &str) {
     STREAM_CACHE.lock().unwrap().remove(video_id);
 }
 
+#[cfg(target_os = "android")]
+async fn try_ytdlp_android(video_id: &str) -> Option<String> {
+    super::ytdlp_android::resolve(video_id).await
+}
+
+#[cfg(not(target_os = "android"))]
+async fn try_ytdlp_android(_video_id: &str) -> Option<String> {
+    None
+}
+
+/// Comprueba que una URL de audio se pueda reproducir de verdad, pidiendo su
+/// primer byte con los mismos encabezados que usará el proxy local.
+///
+/// Hace falta porque los resolutores devuelven URLs *firmadas* que pueden estar
+/// muertas de entrada: YouTube responde 403 a las que vienen de un cliente que
+/// ya bloqueó (p. ej. las de ANDROID_VR que emite un yt-dlp desactualizado).
+/// Sin este chequeo esa URL se cachea y llega al `<audio>`, que solo sabe
+/// reportar SRC_NOT_SUPPORTED, y los respaldos sanos nunca se llegan a probar.
+async fn url_is_playable(url: &str) -> bool {
+    let client = match Client::builder().timeout(Duration::from_secs(8)).build() {
+        Ok(c) => c,
+        // Sin cliente no podemos verificar: mejor dejar pasar que bloquear.
+        Err(_) => return true,
+    };
+
+    // Se pide el ÚLTIMO byte a propósito. Hay URLs firmadas que sirven el primer
+    // MiB y devuelven 403 a partir de ahí (las que emite el cliente IOS de
+    // InnerTube, por ejemplo): comprobar el principio las daría por buenas y la
+    // reproducción se cortaría a los pocos segundos. El final solo lo entrega
+    // una URL que sirve el archivo entero.
+    let probe = match query_param(url, "clen").and_then(|v| v.parse::<u64>().ok()) {
+        Some(clen) if clen > 0 => format!("bytes={}-{}", clen - 1, clen - 1),
+        _ => "bytes=0-1".to_string(),
+    };
+
+    match client
+        .get(url)
+        .header("Range", probe)
+        .header("Referer", "https://www.youtube.com/")
+        .header("Origin", "https://www.youtube.com")
+        .header("User-Agent", crate::stream_server::PLAYBACK_UA)
+        .send()
+        .await
+    {
+        Ok(r) => r.status().is_success(),
+        Err(e) => {
+            eprintln!("[Icaria] verificación de stream falló: {}", e);
+            false
+        }
+    }
+}
+
+fn query_param(url: &str, key: &str) -> Option<String> {
+    let query = url.split_once('?')?.1;
+    query.split('&').find_map(|pair| {
+        let (k, v) = pair.split_once('=')?;
+        (k == key).then(|| v.to_string())
+    })
+}
+
+/// Resuelve una URL de audio reproducible probando los resolutores en orden:
+/// race_stream (Invidious/Piped/yt-dlp en paralelo, rápido en escritorio) →
+/// InnerTube → yt-dlp embebido (último recurso, solo Android). Cada candidata
+/// se verifica antes de aceptarla, para que una URL rechazada por el CDN deje
+/// paso al siguiente resolutor en vez de darse por buena.
+async fn resolve_playable_url(video_id: &str) -> Result<String> {
+    let last_err;
+
+    match race_stream(video_id).await {
+        Ok(u) => {
+            if url_is_playable(&u).await {
+                return Ok(u);
+            }
+            eprintln!("[Icaria] race_stream dio una URL que el CDN rechaza; sigo con InnerTube");
+            last_err = "race_stream: URL rechazada por el CDN".to_string();
+        }
+        Err(e) => {
+            eprintln!("[Icaria] race_stream falló: {}", e);
+            last_err = e.to_string();
+        }
+    }
+
+    let last_err = match innertube_stream(video_id).await {
+        Ok(u) => return Ok(u),
+        Err(e) => {
+            eprintln!("[Icaria] innertube falló: {}", e);
+            format!("{} | InnerTube: {}", last_err, e)
+        }
+    };
+
+    match try_ytdlp_android(video_id).await {
+        Some(u) => {
+            eprintln!("[Icaria] resuelto vía yt-dlp embebido (Android)");
+            Ok(u)
+        }
+        None => Err(anyhow!("No se pudo obtener el audio. {}", last_err)),
+    }
+}
+
 pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
     {
         let cache = STREAM_CACHE.lock().unwrap();
@@ -1264,18 +1402,7 @@ pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
         }
     }
 
-    // race_stream primero (Invidious/Piped/yt-dlp en paralelo, rápido en escritorio).
-    // Si falla (p.ej. Android sin yt-dlp), InnerTube como respaldo.
-    let url = match race_stream(video_id).await {
-        Ok(u) => u,
-        Err(race_err) => {
-            eprintln!("[Icaria] race_stream falló: {}", race_err);
-            match innertube_stream(video_id).await {
-                Ok(u) => u,
-                Err(it_err) => return Err(anyhow!("No se pudo obtener el audio. InnerTube: {}", it_err)),
-            }
-        }
-    };
+    let url = resolve_playable_url(video_id).await?;
 
     let mut cache = STREAM_CACHE.lock().unwrap();
     cache.retain(|_, (_, ts)| ts.elapsed() < STREAM_TTL);
@@ -1283,6 +1410,9 @@ pub async fn get_stream(video_id: &str) -> Result<StreamUrl> {
 
     Ok(StreamUrl { url, mime_type: None })
 }
+
+const VISIONOS_UA: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) \
+     AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Safari/605.1.15";
 
 // Clave pública InnerTube de YouTube.
 const INNERTUBE_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
@@ -1292,6 +1422,10 @@ const INNERTUBE_KEY: &str = "AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vz_yYM39w";
 // (clientName, clientVersion, X-YouTube-Client-Name, User-Agent, campos extra)
 fn innertube_clients() -> Vec<(&'static str, &'static str, &'static str, &'static str, Value)> {
     vec![
+        // VISIONOS es el que YouTube sigue sirviendo entero; los demás quedan
+        // como respaldo porque a veces entregan solo el primer MiB.
+        ("VISIONOS", "1.02", "101", VISIONOS_UA,
+         json!({"deviceMake":"Apple","deviceModel":"RealityDevice17,1","osName":"visionOS","osVersion":"26.5.23O471"})),
         ("IOS", "20.10.4", "5",
          "com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 18_3_2 like Mac OS X)",
          json!({"deviceMake":"Apple","deviceModel":"iPhone16,2","osName":"iPhone","osVersion":"18.3.2.22D82"})),
@@ -1314,6 +1448,7 @@ async fn innertube_stream(video_id: &str) -> Result<String> {
     let url = format!("https://www.youtube.com/youtubei/v1/player?key={}", INNERTUBE_KEY);
 
     let mut last_reason = String::new();
+    let visitor = visitor_data().await;
 
     for (name, ver, cn, ua, extra) in innertube_clients() {
         let mut client_ctx = json!({
@@ -1325,14 +1460,24 @@ async fn innertube_stream(video_id: &str) -> Result<String> {
         if let (Some(obj), Some(ex)) = (client_ctx.as_object_mut(), extra.as_object()) {
             for (k, v) in ex { obj.insert(k.clone(), v.clone()); }
         }
+        if let Some(vd) = &visitor {
+            if let Some(obj) = client_ctx.as_object_mut() {
+                obj.insert("visitorData".to_string(), json!(vd));
+            }
+        }
         let body = json!({ "videoId": video_id, "context": { "client": client_ctx } });
 
-        let resp = match client
+        let mut req = client
             .post(&url)
             .header("Content-Type", "application/json")
             .header("User-Agent", ua)
             .header("X-YouTube-Client-Name", cn)
-            .header("X-YouTube-Client-Version", ver)
+            .header("X-YouTube-Client-Version", ver);
+        if let Some(vd) = &visitor {
+            req = req.header("X-Goog-Visitor-Id", vd);
+        }
+
+        let resp = match req
             .json(&body)
             .send()
             .await
@@ -1352,6 +1497,11 @@ async fn innertube_stream(video_id: &str) -> Result<String> {
         }
 
         if let Some(u) = pick_innertube_audio_url(&data) {
+            if !url_is_playable(&u).await {
+                eprintln!("[Icaria] innertube {} dio una URL que el CDN rechaza; pruebo el siguiente cliente", name);
+                last_reason = format!("{}: URL rechazada por el CDN", name);
+                continue;
+            }
             eprintln!("[Icaria] innertube OK vía {}", name);
             return Ok(u);
         }

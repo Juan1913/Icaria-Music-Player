@@ -1,6 +1,8 @@
 pub mod bandcamp;
 pub mod piped;
 pub mod spotify;
+#[cfg(target_os = "android")]
+pub mod ytdlp_android;
 
 use serde::{Deserialize, Serialize};
 
