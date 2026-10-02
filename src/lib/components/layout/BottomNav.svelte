@@ -5,7 +5,7 @@
 
   const tabs: { id: NavPage; label: string }[] = [
     { id: 'home',      label: 'Inicio'     },
-    { id: 'search',    label: 'Buscar'     },
+    { id: 'history',   label: 'Historial'  },
     { id: 'library',   label: 'Biblioteca' },
     { id: 'favorites', label: 'Favoritos'  },
     { id: 'settings',  label: 'Perfil'     },
@@ -21,8 +21,8 @@
       <span class="tab-icon">
         {#if tab.id === 'home'}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
-        {:else if tab.id === 'search'}
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6.5"/><line x1="16" y1="16" x2="21" y2="21"/></svg>
+        {:else if tab.id === 'history'}
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 15.5 14"/></svg>
         {:else if tab.id === 'library'}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="20"/></svg>
         {:else if tab.id === 'favorites'}

@@ -206,7 +206,7 @@
         return;
       }
     }
-    player.setError(`STREAM ERROR (${codeName})`);
+    player.setError(`ERROR DE AUDIO (${codeName})`);
   }}
   preload="auto"
 ></audio>
@@ -385,6 +385,9 @@
 
 <style>
   /* ── PLAYER BAR ── */
+  /* Sin pista cargada todavía: no hay nada que mostrar ni controlar. */
+  .player-bar:not(.has-track) { display: none; }
+
   .player-bar {
     height: 104px;
     background: var(--bg-primary);
@@ -509,7 +512,7 @@
     margin: 0 0.25rem;
   }
   .play-btn:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow-lg); }
-  .play-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .play-btn:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
 
   .progress-row {
     display: flex; align-items: center; gap: 0.6rem;
@@ -565,9 +568,12 @@
 
   :global([data-theme="jamaica"]) .play-btn { background: #009B45; }
 
-  /* Palestina: verde + borde negro + sombra roja → los tres colores en un botón */
-  :global([data-theme="palestina"]) .play-btn { box-shadow: 4px 4px 0 var(--accent-3-dim); }
-  :global([data-theme="palestina"]) .play-btn:hover { box-shadow: 6px 6px 0 var(--accent-3-dim); }
+  /* Palestina (escritorio): verde + borde negro + sombra roja → los tres
+     colores en un botón. En móvil se deja el --shadow-accent suave general. */
+  @media (min-width: 769px) {
+    :global([data-theme="palestina"]) .play-btn { box-shadow: 4px 4px 0 var(--accent-3-dim); }
+    :global([data-theme="palestina"]) .play-btn:hover { box-shadow: 6px 6px 0 var(--accent-3-dim); }
+  }
 
   /* ── Móvil: mini-reproductor (art + título + play) ── */
   @media (max-width: 768px) {
@@ -591,7 +597,7 @@
     .center-section { flex-direction: row; gap: 0; }
     .play-btn {
       width: 44px; height: 44px; margin: 0;
-      box-shadow: 3px 3px 0 var(--stroke);
+      box-shadow: var(--shadow-accent);
     }
     .play-btn:hover { transform: none; }
   }

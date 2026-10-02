@@ -4,6 +4,7 @@
   import TrackCard from '$lib/components/TrackCard.svelte';
   import { resolveStream, preloadStream } from '$lib/api';
   import { imgFallback } from '$lib/imgFallback';
+  import { nav } from '$lib/stores/nav';
 
   let view = $state<'library' | 'playlist'>('library');
   let activePlaylist = $state<Playlist | null>(null);
@@ -65,9 +66,10 @@
 <div class="library-view">
   {#if view === 'library'}
     <div class="view-header">
-      <span class="view-title">// LIBRARY</span>
+      <span class="view-title">// BIBLIOTECA</span>
+      <button class="hist-link-btn" onclick={() => nav.setPage('history')}>[⏱ HISTORIAL]</button>
       <button class="new-btn" onclick={() => (creating = !creating)}>
-        {creating ? '[x] CANCEL' : '[+] NEW PLAYLIST'}
+        {creating ? '[x] CANCELAR' : '[+] NUEVA PLAYLIST'}
       </button>
     </div>
 
@@ -77,7 +79,7 @@
         <input
           type="text"
           class="create-input"
-          placeholder="playlist name..."
+          placeholder="nombre de la playlist..."
           bind:value={newName}
           onkeydown={e => e.key === 'Enter' && createPlaylist()}
         />
@@ -90,9 +92,9 @@
         <pre class="ascii-note">
   ╔══════════════╗
   ║   [♫]  [ ]  ║
-  ║   no playlists  ║
+  ║   sin playlists  ║
   ╚══════════════╝</pre>
-        <p class="empty-msg">:: search music · tap [+] to save ::</p>
+        <p class="empty-msg">:: buscá música · tocá [+] para guardar ::</p>
       </div>
     {:else}
       <div class="playlist-grid">
@@ -122,13 +124,13 @@
               {:else}
                 <button class="pl-name-btn" onclick={() => openPlaylist(pl)}>{pl.name.toUpperCase()}</button>
               {/if}
-              <span class="pl-count">[{pl.tracks.length} TRACKS]</span>
+              <span class="pl-count">[{pl.tracks.length} CANCIONES]</span>
             </div>
 
             <div class="pl-actions">
-              <button class="act-btn" onclick={() => playPlaylist(pl)} title="Play">▶</button>
-              <button class="act-btn" onclick={() => startRename(pl)} title="Rename">✎</button>
-              <button class="act-btn danger" onclick={() => deletePlaylist(pl.id)} title="Delete">[×]</button>
+              <button class="act-btn" onclick={() => playPlaylist(pl)} title="Reproducir">▶</button>
+              <button class="act-btn" onclick={() => startRename(pl)} title="Renombrar">✎</button>
+              <button class="act-btn danger" onclick={() => deletePlaylist(pl.id)} title="Eliminar">[×]</button>
             </div>
           </div>
         {/each}
@@ -137,18 +139,18 @@
 
   {:else if view === 'playlist' && activePlaylist}
     <div class="view-header">
-      <button class="back-btn" onclick={back}>[← BACK]</button>
+      <button class="back-btn" onclick={back}>[← VOLVER]</button>
       <span class="view-title">// {activePlaylist.name.toUpperCase()}</span>
       {#if activePlaylist.tracks.length}
-        <button class="play-all-btn" onclick={() => playPlaylist(activePlaylist!)}>▶ PLAY ALL</button>
+        <button class="play-all-btn" onclick={() => playPlaylist(activePlaylist!)}>▶ REPRODUCIR TODO</button>
       {/if}
     </div>
-    <div class="pl-detail-count">[{activePlaylist.tracks.length} TRACKS]</div>
+    <div class="pl-detail-count">[{activePlaylist.tracks.length} CANCIONES]</div>
 
     {#if activePlaylist.tracks.length === 0}
       <div class="empty-state">
-        <p class="empty-msg">:: playlist is empty ::</p>
-        <p class="empty-sub">search music and tap [+] to add tracks</p>
+        <p class="empty-msg">:: la playlist está vacía ::</p>
+        <p class="empty-sub">buscá música y tocá [+] para agregar canciones</p>
       </div>
     {:else}
       <div class="track-list">
@@ -160,7 +162,7 @@
             </div>
             <button
               class="remove-btn"
-              title="Remove"
+              title="Quitar"
               onclick={() => playlists.removeTrack(activePlaylist!.id, i)}
             >[×]</button>
           </div>
@@ -187,6 +189,13 @@
     font-family: inherit; padding: 0.3rem 0.7rem; cursor: pointer; transition: all 0.08s;
   }
   .new-btn:hover { transform: translate(-1px,-1px); box-shadow: var(--shadow); }
+
+  .hist-link-btn {
+    background: none; border: var(--stroke-w) solid var(--accent); box-shadow: var(--shadow-sm);
+    color: var(--accent); font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    font-family: inherit; padding: 0.3rem 0.7rem; cursor: pointer; transition: all 0.08s;
+  }
+  .hist-link-btn:hover { background: var(--accent); color: var(--on-accent); transform: translate(-1px,-1px); box-shadow: var(--shadow); }
 
   .create-row {
     display: flex; align-items: center; gap: 0.5rem;

@@ -14,6 +14,7 @@
   const libItems: { id: NavPage; label: string; icon: string }[] = [
     { id: 'favorites', label: 'Favoritos', icon: '♥' },
     { id: 'library', label: 'Biblioteca', icon: '▤' },
+    { id: 'history', label: 'Historial', icon: '⏱' },
   ];
 
   function pickTheme(t: Theme) {
@@ -319,7 +320,7 @@
     font-family: inherit;
   }
   .theme-card:hover { transform: translate(-2px,-2px); box-shadow: var(--shadow); }
-  .theme-card:active { transform: translate(0,0); box-shadow: 1px 1px 0 var(--stroke); }
+  .theme-card:active { transform: translate(0,0); box-shadow: var(--shadow-sm); }
   .theme-card.active { box-shadow: var(--shadow); }
 
   /* polka dots overlay */

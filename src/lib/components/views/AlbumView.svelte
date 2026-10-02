@@ -63,7 +63,7 @@
     </div>
   {:else if detail}
     <div class="view-header">
-      <button class="back-btn" onclick={() => nav.goBack()}>[← BACK]</button>
+      <button class="back-btn" onclick={() => nav.goBack()}>[← VOLVER]</button>
     </div>
 
     <div class="album-hero">
@@ -79,7 +79,7 @@
           <p class="album-desc">{detail.description.slice(0, 200)}{detail.description.length > 200 ? '...' : ''}</p>
         {/if}
         {#if detail.tracks.length}
-          <button class="play-all-btn nb-btn" onclick={playAll}>▶ PLAY ALL</button>
+          <button class="play-all-btn nb-btn" onclick={playAll}>▶ REPRODUCIR TODO</button>
         {/if}
       </div>
     </div>
@@ -87,7 +87,7 @@
     {#if detail.tracks.length}
       <section class="section">
         <div class="section-head">
-          <span class="section-label">[ {detail.tracks.length} TRACKS ]</span>
+          <span class="section-label">[ {detail.tracks.length} CANCIONES ]</span>
           <div class="section-rule"></div>
         </div>
         <div class="track-list">

@@ -82,7 +82,13 @@
     transition: transform 0.1s, box-shadow 0.1s;
   }
   .hs-arrow:hover { transform: translateY(-50%) translate(-1px, -1px); box-shadow: var(--shadow); }
-  .hs-arrow:active { transform: translateY(-50%); box-shadow: 1px 1px 0 var(--stroke); }
+  .hs-arrow:active { transform: translateY(-50%); box-shadow: var(--shadow-sm); }
   .hs-arrow.left  { left: -8px; }
   .hs-arrow.right { right: -8px; }
+
+  /* En touch no hay hover para descubrirlas y tapan contenido: se desliza
+     con el dedo directamente. */
+  @media (max-width: 768px) {
+    .hs-arrow { display: none; }
+  }
 </style>

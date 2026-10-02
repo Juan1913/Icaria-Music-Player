@@ -10,6 +10,7 @@
   import ArtistView from '$lib/components/views/ArtistView.svelte';
   import AlbumView from '$lib/components/views/AlbumView.svelte';
   import FavoritesView from '$lib/components/views/FavoritesView.svelte';
+  import HistoryView from '$lib/components/views/HistoryView.svelte';
   import { settings } from '$lib/stores/settings';
   import { nav } from '$lib/stores/nav';
   import { theme } from '$lib/stores/theme';
@@ -47,6 +48,12 @@
   let activePage = $derived($nav.page);
   let artistBrowseId = $derived($nav.artistBrowseId);
   let albumBrowseId = $derived($nav.albumBrowseId);
+
+  // En móvil, la pantalla de reproducción ya trae sus propios controles a
+  // pantalla completa: el mini-reproductor y la barra inferior se solapaban
+  // con ellos. Se ocultan con CSS (no se desmonta PlayerBar) para no cortar
+  // el audio, que sigue sonando igual aunque su barra no se vea.
+  let hideMobileChrome = $derived(isMobile && activePage === 'nowplaying');
 </script>
 
 <div class="app-root {isMobile ? 'mobile' : 'desktop'}">
@@ -67,6 +74,8 @@
       <NowPlayingView />
     {:else if activePage === 'favorites'}
       <FavoritesView />
+    {:else if activePage === 'history'}
+      <HistoryView />
     {:else if activePage === 'library'}
       <LibraryView />
     {:else if activePage === 'settings'}
@@ -76,7 +85,7 @@
     {/if}
   </main>
 
-  <div class="player-wrapper">
+  <div class="player-wrapper" class:hidden={hideMobileChrome}>
     <PlayerBar />
     {#if isMobile}
       <BottomNav />
@@ -283,6 +292,23 @@
     --dot-color:     rgba(0,0,0,0.07);
   }
 
+  /* ══════════════════════════════════════
+     MÓVIL — neobrutalista: bordes gruesos,
+     sin sombras (plano). Los componentes ya
+     usan estos tokens, así que redefinirlos
+     aquí alcanza para toda la UI bajo 768px.
+     ══════════════════════════════════════ */
+  @media (max-width: 768px) {
+    :global(:root) {
+      --radius:        20px;
+      --radius-sm:     14px;
+      --shadow-sm:     none;
+      --shadow:        none;
+      --shadow-lg:     none;
+      --shadow-accent: none;
+    }
+  }
+
   :global(*) { box-sizing: border-box; margin: 0; padding: 0; }
   :global(body) {
     overflow: hidden; background: var(--bg-primary);
@@ -319,7 +345,7 @@
     transition: box-shadow 0.12s, transform 0.1s;
   }
   :global(.nb-btn:hover) { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
-  :global(.nb-btn:active) { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  :global(.nb-btn:active) { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
 
   :global(input[type="text"], input[type="search"], input[type="password"]) {
     font-family: inherit;
@@ -355,7 +381,22 @@
     z-index: 100;
   }
   .mobile { flex-direction: column; }
-  .mobile .main-content { flex: 1; overflow-y: auto; min-width: 0; }
+  .mobile .main-content {
+    flex: 1;
+    overflow-y: auto;
+    min-width: 0;
+    /* Edge-to-edge en Android: el contenido arrancaba debajo de la barra de
+       estado (reloj/batería). Este padding lo empuja por debajo de ella. */
+    padding-top: env(safe-area-inset-top, 0px);
+  }
   .mobile .player-wrapper { flex-shrink: 0; }
+  .mobile .player-wrapper.hidden { display: none; }
+
+  /* Scrollbar: el thumb grueso con borde está pensado para mouse/desktop;
+     en móvil (scroll táctil) solo estorba visualmente. */
+  @media (max-width: 768px) {
+    :global(::-webkit-scrollbar) { display: none; }
+    :global(*) { scrollbar-width: none; }
+  }
 
 </style>

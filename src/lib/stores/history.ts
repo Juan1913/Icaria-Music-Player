@@ -40,6 +40,17 @@ function createHistoryStore() {
       save([]);
       update(() => []);
     },
+
+    /** Combina un historial importado con el actual (sin duplicados, más reciente primero). */
+    merge(tracks: Track[]) {
+      update(list => {
+        const seen = new Set(list.map(t => t.id));
+        const incoming = tracks.filter(t => t && t.id && !seen.has(t.id));
+        const next = [...list, ...incoming].slice(0, MAX);
+        save(next);
+        return next;
+      });
+    },
   };
 }
 

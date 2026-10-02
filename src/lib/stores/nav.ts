@@ -6,6 +6,7 @@ export type NavPage =
   | 'search'
   | 'library'
   | 'favorites'
+  | 'history'
   | 'settings'
   | 'artist'
   | 'album'

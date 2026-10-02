@@ -34,7 +34,7 @@
 <div class="modal" role="dialog" aria-modal="true">
   <!-- Header -->
   <div class="modal-header">
-    <span class="modal-title">// ADD TO PLAYLIST</span>
+    <span class="modal-title">// AGREGAR A PLAYLIST</span>
     <button class="close-btn" onclick={onClose}>[×]</button>
   </div>
 
@@ -67,20 +67,20 @@
       {/each}
     </div>
   {:else}
-    <p class="no-playlists">:: no playlists yet — create one below ::</p>
+    <p class="no-playlists">:: todavía no hay playlists — creá una abajo ::</p>
   {/if}
 
   <!-- Create new -->
   <div class="create-section">
     {#if !creating}
-      <button class="create-toggle" onclick={() => (creating = true)}>[+] NEW PLAYLIST</button>
+      <button class="create-toggle" onclick={() => (creating = true)}>[+] NUEVA PLAYLIST</button>
     {:else}
       <div class="create-form">
         <span class="form-prefix">&gt;</span>
         <input
           type="text"
           class="form-input"
-          placeholder="playlist name..."
+          placeholder="nombre de la playlist..."
           bind:value={newName}
           onkeydown={e => e.key === 'Enter' && createAndAdd()}
         />

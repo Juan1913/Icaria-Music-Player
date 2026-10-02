@@ -273,7 +273,7 @@
     transition: all 0.1s; cursor: pointer;
   }
   .play-all-btn:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow); }
-  .play-all-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .play-all-btn:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
 
   .section { padding: 1.5rem 1.5rem 0.75rem; }
   .section-head { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1rem; }

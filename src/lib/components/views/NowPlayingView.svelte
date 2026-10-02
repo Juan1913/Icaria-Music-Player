@@ -186,7 +186,7 @@
             aria-checked={$player.autoplay}
             aria-label="Autoplay"
           >
-            <span class="sw-label">AUTOPLAY</span>
+            <span class="sw-label">AUTOMÁTICO</span>
             <span class="sw-track"><span class="sw-knob"></span></span>
           </button>
           <button class="lyrics-toggle" class:active={showLyrics} onclick={toggleLyrics}>
@@ -399,7 +399,7 @@
     transition: box-shadow 0.12s, transform 0.1s;
   }
   .round-btn:hover { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
-  .round-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .round-btn:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
 
   .top-actions { display: flex; align-items: center; gap: 0.6rem; }
 
@@ -417,7 +417,7 @@
     transition: box-shadow 0.1s, transform 0.1s, color 0.1s;
   }
   .autoplay-switch:hover { box-shadow: var(--shadow); transform: translate(-1px, -1px); }
-  .autoplay-switch:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .autoplay-switch:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
   .autoplay-switch.on { color: var(--text-primary); }
 
   .sw-track {
@@ -548,7 +548,7 @@
     transition: box-shadow 0.12s, transform 0.1s, background 0.12s, color 0.12s;
   }
   .action-btn:hover { box-shadow: var(--shadow); transform: translate(-2px, -2px); }
-  .action-btn:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .action-btn:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
   .action-btn.primary { background: var(--accent); color: var(--on-accent); box-shadow: var(--shadow-accent); }
   .action-btn.liked { background: var(--accent); color: var(--on-accent); }
   /* Palestina: favorito en rojo */
@@ -621,15 +621,25 @@
 
   /* ── Responsive / móvil ── */
   @media (max-width: 768px) {
+    /* Sin barra inferior propia en esta pantalla (se oculta a propósito):
+       hay que dejar lugar para la barra de gestos/navegación del sistema. */
+    .np-layout { padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px)); }
     .np-main { flex-direction: column; text-align: center; }
     .info-col { align-items: center; }
     .badge, .actions { align-self: center; }
-    .art-wrap { width: min(72vw, 320px); }
-    .wave { width: 100%; }
+    /* Tamaño de la portada atado también al alto disponible, no solo al
+       ancho: en pantallas bajas se achica para que todo entre sin scroll
+       ni superposiciones con los controles. */
+    .art-wrap { width: min(40vh, 62vw, 280px); }
+    .badge { margin-bottom: 0.6rem; }
+    .track-title { font-size: clamp(1.5rem, 7vw, 2.4rem); margin-bottom: 0.3rem; }
+    .track-artist { margin-bottom: 0.15rem; }
+    .actions { margin-top: 0.75rem; }
+    .wave { width: 100%; height: 48px; margin-top: 1rem; }
 
     .np-controls {
-      display: flex; flex-direction: column; gap: 0.6rem;
-      flex-shrink: 0; margin-top: 1.25rem;
+      display: flex; flex-direction: column; gap: 0.5rem;
+      flex-shrink: 0; margin-top: 0.75rem;
     }
     .np-times { display: flex; justify-content: space-between; padding: 0 0.25rem; }
     .np-times .time {
@@ -650,7 +660,7 @@
       display: flex; align-items: center; justify-content: center;
       box-shadow: var(--shadow-accent); margin: 0 0.4rem;
     }
-    .play-btn:active { transform: translate(0,0); box-shadow: 1px 1px 0 var(--stroke); }
+    .play-btn:active { transform: translate(0,0); box-shadow: var(--shadow-sm); }
     .loading-pulse { animation: pulse 1s step-end infinite; font-weight: 700; }
   }
 </style>

@@ -8,6 +8,7 @@
   import HScroll from '$lib/components/HScroll.svelte';
   import { get } from 'svelte/store';
   import { streamAndPlay } from '$lib/playback';
+  import { theme } from '$lib/stores/theme';
 
   const CATEGORIES = [
     { id: 'parati',     label: 'Para ti'         },
@@ -140,12 +141,16 @@
   <!-- Header móvil: logo + barra de búsqueda (como el mockup) -->
   <div class="mobile-header">
     <div class="mh-logo">
-      <div class="mh-logo-box">
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
-          <line x1="16" y1="8" x2="2" y2="22" />
-          <line x1="17.5" y1="15" x2="9" y2="15" />
-        </svg>
+      <div class="mh-logo-box" class:flag={$theme === 'palestina'}>
+        {#if $theme === 'palestina'}
+          <span class="mh-pal-flag" role="img" aria-label="Bandera de Palestina"></span>
+        {:else}
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.24 12.24a6 6 0 0 0-8.49-8.49L5 10.5V19h8.5z" />
+            <line x1="16" y1="8" x2="2" y2="22" />
+            <line x1="17.5" y1="15" x2="9" y2="15" />
+          </svg>
+        {/if}
       </div>
       <div class="mh-name"><b>ICARIA</b><span>música libre</span></div>
     </div>
@@ -176,7 +181,6 @@
         <span class="section-icon">✦</span>
         <span class="section-title">Destacados</span>
         <div class="section-rule"></div>
-        <button class="ver-todo" onclick={() => {}}>VER TODO &rsaquo;</button>
       </div>
 
       <div class="featured-row">
@@ -225,7 +229,6 @@
         <span class="section-icon cat-icon-dot">●</span>
         <span class="section-title">Géneros</span>
         <div class="section-rule"></div>
-        <button class="ver-todo" onclick={() => {}}>VER TODO &rsaquo;</button>
       </div>
       <HScroll gap="0.55rem">
         {#each CATEGORIES as cat}
@@ -243,7 +246,6 @@
         <span class="section-icon cat-icon-dot">●</span>
         <span class="section-title">Canciones populares</span>
         <div class="section-rule"></div>
-        <button class="ver-todo" onclick={() => {}}>VER TODO &rsaquo;</button>
       </div>
       <HScroll gap="0.9rem">
         {#if loading}
@@ -312,7 +314,7 @@
     transition: transform 0.12s, box-shadow 0.12s;
   }
   .search-fab:hover { transform: translate(-2px, -2px); box-shadow: var(--shadow); }
-  .search-fab:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .search-fab:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
 
   /* ── Sections ── */
   .section { padding: 0.75rem 1.5rem 0.5rem; }
@@ -325,12 +327,6 @@
     white-space: nowrap; letter-spacing: 0.01em;
   }
   .section-rule { flex: 1; height: 1px; background: var(--stroke); opacity: 0.12; }
-  .ver-todo {
-    font-size: 0.68rem; font-weight: 800; color: var(--text-muted);
-    background: none; border: none; cursor: pointer; white-space: nowrap;
-    font-family: inherit; padding: 0; transition: color 0.12s; letter-spacing: 0.05em;
-  }
-  .ver-todo:hover { color: var(--accent); }
 
   /* ── Featured cards (landscape 3:2) ── */
   .featured-row {
@@ -346,7 +342,7 @@
     transition: transform 0.15s, box-shadow 0.15s;
   }
   .feat-card:hover { transform: translate(-3px, -3px); box-shadow: var(--shadow-lg); }
-  .feat-card:active { transform: translate(0, 0); box-shadow: 1px 1px 0 var(--stroke); }
+  .feat-card:active { transform: translate(0, 0); box-shadow: var(--shadow-sm); }
   .feat-card.playing {
     border-color: var(--accent);
     box-shadow: var(--shadow-accent);
@@ -526,6 +522,16 @@
       background: var(--accent); color: var(--on-accent);
       border: var(--stroke-heavy) solid var(--stroke);
       box-shadow: var(--shadow-accent);
+    }
+    /* Palestina: el logo pasa a ser la bandera en vez de la pluma */
+    .mh-logo-box.flag { padding: 0; overflow: hidden; background: #000; }
+    .mh-pal-flag {
+      width: 100%; height: 100%; display: block; position: relative;
+      background: linear-gradient(to bottom, #000 0 33.34%, #fff 33.34% 66.67%, #007A3D 66.67% 100%);
+    }
+    .mh-pal-flag::before {
+      content: ''; position: absolute; inset: 0; width: 48%;
+      background: #CE1126; clip-path: polygon(0 0, 100% 50%, 0 100%);
     }
     .mh-name { display: flex; flex-direction: column; line-height: 1; gap: 3px; }
     .mh-name b { font-size: 1rem; font-weight: 900; letter-spacing: 0.08em; color: var(--text-primary); }
